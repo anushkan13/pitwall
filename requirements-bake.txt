@@ -1,0 +1,5 @@
+# Only for re-baking data/races.db with scripts/bake_race.py; the app doesn't
+# need these (and Render doesn't install them).
+-r requirements.txt
+fastf1==3.9.0
+requests==2.34.2

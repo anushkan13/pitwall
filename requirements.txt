@@ -1,0 +1,14 @@
+# What the app needs to run (backend, MCP server, agents). This is what Render
+# installs. Pinned to the versions this project was built and verified against:
+# an unpinned install pulls a newer `cryptography` that may try to build from
+# Rust source and fail.
+
+fastmcp==4.1.0
+pydantic-ai==2.55.0
+openai==3.28.0
+python-dotenv==1.2.4
+fastapi==0.143.0
+uvicorn==0.54.0
+
+# Transitive, pinned deliberately (see above).
+cryptography==48.0.1

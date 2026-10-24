@@ -1,0 +1,21 @@
+# Render Blueprint: one web service runs everything.
+#   FastAPI backend + the built frontend (frontend/dist, committed) + the MCP
+#   server (spawned by the backend over stdio), reading data/races.db from
+#   the repo. One instance, one worker: the sim clock lives in that process,
+#   so there is only ever one clock.
+services:
+  - type: web
+    name: pitwall
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: python -m uvicorn main:app --app-dir backend --host 0.0.0.0 --port $PORT --workers 1
+    healthCheckPath: /api/health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.7
+      - key: PYDANTIC_AI_NO_BANNER
+        value: "1"
+      # Set in the Render dashboard; never committed.
+      - key: PORTKEY_API_KEY
+        sync: false

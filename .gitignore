@@ -1,0 +1,29 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Secrets — never commit a real key. .env.example is committed instead.
+.env
+.env.local
+
+# Local editor / tooling state
+.claude/
+.DS_Store
+.idea/
+.vscode/
+
+# Frontend
+node_modules/
+frontend/node_modules/
+# frontend/dist IS committed: Render serves the prebuilt app, so it needs no Node.
+# Rebuild it (cd frontend && npm run build) before committing UI changes.
+
+# Race-data fetch caches (FastF1 + raw API responses); rebuildable
+.cache/
+
+# User data the app generates (sim clock, decisions); never committed
+data/pitwall_user.db*
+
+# Scratch
+*.tmp
