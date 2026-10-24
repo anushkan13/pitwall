@@ -1,7 +1,7 @@
 # Pitwall
 
-**Live: LIVE_URL_PENDING** (Render free tier: the first load after a quiet spell
-takes about a minute; see [Deployment](#deployment)).
+**Live: https://pitwall-lq92.onrender.com** (Render free tier: the first load after 15 quiet
+minutes takes about 70 seconds while the service wakes; see [Deployment](#deployment)).
 
 An F1 strategy game on real 2025 data: replay a race, qualifying session or
 sprint as a driver's pit wall, make the calls at each decision point with an
@@ -487,7 +487,11 @@ It then waits for an MCP client on stdin/stdout (Ctrl+C to stop).
 
 ## Deployment
 
-Live at **LIVE_URL_PENDING**, on Render's free tier, from `render.yaml`.
+Live at **https://pitwall-lq92.onrender.com**, on Render's free tier, from `render.yaml`.
+
+Verified on the live link (2026-10-24): the full 2025 British GP as Norris ran end to
+end (52 laps, 6 decision points, graded scorecard) in 153 seconds at 0.5 s/lap with
+no HTTP errors; the AI calls for that race cost $0.0129 in total.
 
 **One web service runs everything**: the FastAPI backend, the built frontend
 (`frontend/dist`, committed, so Render needs no Node), and the MCP server. It
@@ -511,8 +515,11 @@ reads the baked `data/races.db` from the repo.
 - **State.** `data/pitwall_user.db` (clock, decisions, scorecards) lives on
   Render's ephemeral disk and resets when the service sleeps or redeploys.
 - **Cold start.** Free services sleep after 15 minutes without traffic. The
-  first request after that waits for Render to wake the service; measured
-  times are below. Open the link a few minutes before anyone needs it.
+  first request after that waits while Render wakes the service: measured at
+  **72 seconds** (after 18 minutes idle, 2026-10-24); every request after that
+  answered in under half a second. The page can look blank or stuck while it
+  wakes. On submission day, open the link a few minutes early, and keep a tab
+  on it (the app polls every 0.7 s, which keeps it awake).
 - **Redeploying UI changes.** Rebuild the frontend before committing:
   `cd frontend && npm run build`.
 
