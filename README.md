@@ -490,9 +490,16 @@ It then waits for an MCP client on stdin/stdout (Ctrl+C to stop).
 Live at **LIVE_URL_PENDING**, on Render's free tier, from `render.yaml`.
 
 **One web service runs everything**: the FastAPI backend, the built frontend
-(`frontend/dist`, committed, so Render needs no Node), and the MCP server,
-which the backend starts as a child process over stdio. It reads the baked
-`data/races.db` from the repo. Build: `pip install -r requirements.txt`
+(`frontend/dist`, committed, so Render needs no Node), and the MCP server. It
+reads the baked `data/races.db` from the repo.
+
+- **MCP transport.** Locally the MCP server runs as its own process over stdio
+  (from `mcp.json`). On Render, `PITWALL_MCP_TRANSPORT=inprocess` serves the
+  same FastMCP server object over FastMCP's in-memory transport inside the
+  backend: same server code, same tools, same no-future checks, one process.
+  The free instance has 512 MB; with a separate server process for the backend
+  plus one per agent run, a decision peaked at 346 MB locally and the first
+  live run was restarted mid-race. In-process it peaks at about 151 MB. Build: `pip install -r requirements.txt`
 (the app only; FastF1 is in `requirements-bake.txt`). Start:
 `python -m uvicorn main:app --app-dir backend --host 0.0.0.0 --port $PORT --workers 1`.
 

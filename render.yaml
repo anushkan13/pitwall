@@ -1,7 +1,7 @@
 # Render Blueprint: one web service runs everything.
 #   FastAPI backend + the built frontend (frontend/dist, committed) + the MCP
-#   server (spawned by the backend over stdio), reading data/races.db from
-#   the repo. One instance, one worker: the sim clock lives in that process,
+#   server (in-process, see PITWALL_MCP_TRANSPORT), reading data/races.db
+#   from the repo. One instance, one worker: the sim clock lives in that process,
 #   so there is only ever one clock.
 services:
   - type: web
@@ -16,6 +16,10 @@ services:
         value: 3.11.7
       - key: PYDANTIC_AI_NO_BANNER
         value: "1"
+      # The MCP server runs in-process over FastMCP's in-memory transport: same
+      # server and tools, no extra processes, so it fits the free tier's 512 MB.
+      - key: PITWALL_MCP_TRANSPORT
+        value: inprocess
       # Set in the Render dashboard; never committed.
       - key: PORTKEY_API_KEY
         sync: false

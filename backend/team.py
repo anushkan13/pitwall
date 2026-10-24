@@ -270,11 +270,12 @@ class PitwallTeam:
 
     def __init__(self, mode: str = "race") -> None:
         self.mode = mode
-        command, args = mcp_client.server_command()
-        self.toolset = MCPToolset(
-            StdioTransport(command, args, cwd=str(mcp_client.PROJECT_DIR)),
-            process_tool_call=self._log_tool_call,
-        )
+        if mcp_client.TRANSPORT == "inprocess":
+            client = mcp_client.inprocess_server()
+        else:
+            command, args = mcp_client.server_command()
+            client = StdioTransport(command, args, cwd=str(mcp_client.PROJECT_DIR))
+        self.toolset = MCPToolset(client, process_tool_call=self._log_tool_call)
         model = build_model()
 
         def make(name: AgentName, output_type: type, tools: bool = True, retries: int = 2) -> Agent:

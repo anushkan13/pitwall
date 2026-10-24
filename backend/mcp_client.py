@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -45,6 +46,26 @@ def _config() -> dict:
     return raw
 
 
+# "stdio" (default): the MCP server runs as its own process, started from mcp.json.
+# "inprocess": the same FastMCP server object, served over FastMCP's in-memory
+# transport inside the backend process. Same server code, same tools, same
+# no-future checks; no extra processes. Used on Render, whose free instance has
+# 512 MB, where a separate server per agent run ran it out of memory.
+TRANSPORT = os.getenv("PITWALL_MCP_TRANSPORT", "stdio").lower()
+
+
+def inprocess_server():
+    """The pitwall FastMCP server object, imported from mcp_server/server.py."""
+    sys.path.insert(0, str(PROJECT_DIR / "mcp_server"))
+    import server as pitwall_mcp_server  # noqa: E402  (mcp_server/server.py)
+    return pitwall_mcp_server.mcp
+
+
+def target():
+    """What an MCP client connects to: the in-process server, or the mcp.json config."""
+    return inprocess_server() if TRANSPORT == "inprocess" else _config()
+
+
 def server_command() -> tuple[str, list[str]]:
     """The pitwall server's command and args, for agents that spawn their own."""
     entry = _config()["mcpServers"]["pitwall"]
@@ -60,7 +81,7 @@ class Persistent:
         self._lock = asyncio.Lock()
 
     async def open(self) -> None:
-        self.client = Client(_config())
+        self.client = Client(target())
         await self.client.__aenter__()
 
     async def close(self) -> None:
