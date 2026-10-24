@@ -20,6 +20,7 @@ from __future__ import annotations
 import re
 from typing import Any, Awaitable, Callable
 
+import user_db
 from grounding import (
     NO_CAR_KINDS, PLACEHOLDER, TEAM_KINDS, Fact, FactRef, RaceView, Unresolvable, check_labels,
     clause_mode, default_subject, resolve_season_or_record,
@@ -42,8 +43,15 @@ Qualifying fact kinds (driver = three-letter code; omit it to mean our driver):
 - track_temp_trend: track temperature change over the last 10 minutes
 Season kinds (drivers_leader, champ_position, ...) work here too."""
 
+SCHEDULED = {"Q1": "18:00", "Q2": "15:00", "Q3": "12:00"}
+# Before the first lap of Q1: these need lap times, so they don't exist yet ...
+PRE_SESSION_MISSING = {"q_gap_to", "q_recent_best"}
+
 QUALI_KINDS = {"q_session", "q_time_left", "q_position", "q_best", "q_status", "q_gap_to", "q_cut",
                "q_evolution", "q_recent_best", "q_on_track", "weather", "rain_trend", "track_temp_trend"}
+# ... and these are true before the session too.
+PRE_SESSION_OK = {"q_session", "q_time_left", "q_position", "q_best", "q_status", "q_cut", "q_evolution",
+                  "q_on_track", "weather", "rain_trend", "track_temp_trend"}
 QUALI_NO_CAR = {"q_session", "q_time_left", "q_cut", "q_evolution", "q_recent_best", "q_on_track", "weather",
                 "rain_trend", "track_temp_trend"}
 
@@ -67,6 +75,29 @@ DROP_ZONE = r"drop zone|knock-?out zone|below the cut|outside the cut|outside th
 SAFE = r"inside the cut|above the cut|\bsafe\b|inside the top"
 
 
+def _secs(mmss: str | None) -> int:
+    if not mmss or ":" not in mmss:
+        return 0
+    m, sec = mmss.split(":")
+    return int(m) * 60 + int(sec)
+
+
+# a plural or field-wide subject: "cars still on track" isn't about the last driver named
+GENERIC_SUBJECT = r"\b(?:cars|rivals|runners|drivers|others|everyone|everybody|anyone|the field)\b"
+# advice, not a status: "staying in the garage is risky", "get Norris out on track"
+# (but "HAM is staying in the garage" has a subject and is still checked)
+ACTION_LEAD = (r"(?<!\bis )(?<!\bare )(?<!'s )\b(?:stay|remain|sit|wait|keep|go|get|send|head|return)\w*"
+               r"(?:\s+\w+)?\s+(?:back\s+|out\s+)?$")
+# "just behind Norris and on a lap" is about the rival, not Norris
+PREP_OBJECT = (r"\b(?:behind|ahead of|in front of|than|to|from|with|of|over|under|past|after|before|like|unlike|"
+               r"for|by|beat|beats|beating|between)\s+$")
+# a status or cut denial negates the claim itself: "is not on track", "isn't in the
+# garage", "no longer safe"; the "not" in "Q3 has not gone green and we are in the
+# garage" belongs to another verb
+LOCAL_NEGATION = r"(?:\bnot\b|n't|\bno longer\b|\bnever\b)(?:\s+\w+){0,3}\s+$"
+CLAUSE_BREAK = r"[.;,:!?]|\bbut\b|\bthough\b|\bwhile\b|\bwhereas\b"
+
+
 def _view_status(car: dict | None) -> str | None:
     return car.get("status") if car else None
 
@@ -84,6 +115,10 @@ class QualiView(RaceView):
         v.quali = await call("get_quali_state", {})
         v.qrivals = await call("get_quali_rivals", {})
         v.drivers = {}
+        # surnames, so "Norris is in the garage" is checked against NOR
+        race_id = user_db.get_clock().get("race_id")
+        entries = (await call("get_entry_list", {"race_id": race_id})).get("entries", []) if race_id else []
+        v.names = {e["name"].split()[-1].lower(): e["code"] for e in entries if e.get("name")}
         # RaceView fields some shared code reads
         v.state = {"cars": [], "current_lap": None}
         v.rivals = {"rivals": v.qrivals.get("rivals", [])}
@@ -124,8 +159,13 @@ class QualiView(RaceView):
         if k not in QUALI_KINDS:
             raise Unresolvable(f"{ref.key}: {k} is a race fact; this is qualifying, use the q_ kinds")
         q, seg = self.quali, self.segment
-        if not seg and k not in ("weather", "rain_trend", "track_temp_trend"):
-            raise Unresolvable(f"{ref.key}: qualifying hasn't started yet")
+        # Before Q1 every car is in the garage and nobody has a time. Facts that are
+        # true then resolve as such; facts that need lap times don't exist yet.
+        pre = not seg
+        if pre and k in PRE_SESSION_MISSING:
+            raise Unresolvable(f"{ref.key}: {k} needs lap times and qualifying hasn't started, so there are none yet. "
+                               f"Before the session you can cite: {', '.join(sorted(PRE_SESSION_OK))}")
+        seg = seg or "Q1"
         car = None if k in QUALI_NO_CAR else self.car(ref.driver)
         if k not in QUALI_NO_CAR and car is None:
             raise Unresolvable(f"{ref.key}: no car '{ref.driver}' still in {seg or 'the session'}")
@@ -136,22 +176,31 @@ class QualiView(RaceView):
             return Fact(key=ref.key, kind=k, driver=driver, text=text, value=value, shorts=shorts or [])
 
         if k == "q_session":
+            if pre:
+                return fact(f"qualifying not started yet; Q1 (scheduled {SCHEDULED['Q1']}) is next", None)
             if not q.get("running"):
                 return fact(f"no running since {seg} (a break or a stoppage)", None)
             return fact(f"{seg}, {q['elapsed']} into a scheduled {q['scheduled_length']}", q["elapsed"])
         if k == "q_time_left":
+            if pre:
+                return fact(f"Q1 not started: all {SCHEDULED['Q1']} of it still to run", None)
             if not q.get("running"):
-                raise Unresolvable(f"{ref.key}: no cars are running, so there's no time left to count "
-                                   f"({seg} is over or stopped)")
+                nxt = {"Q1": "Q2", "Q2": "Q3"}.get(seg)
+                if _secs(q.get("elapsed")) >= _secs(q.get("scheduled_length")):
+                    return fact(f"{seg} finished; {nxt} not started yet, so no clock is running "
+                                f"({nxt} is scheduled for {SCHEDULED[nxt]})" if nxt else
+                                "Q3 finished: qualifying is over, no time left", None)
+                raise Unresolvable(f"{ref.key}: no cars are running and {seg}'s scheduled time isn't used up, so it's "
+                                   "stopped, with no clock to count (cite q_session instead)")
             return fact(f"about {q['scheduled_time_left']} of the scheduled {q['scheduled_length']} left in {seg}",
                         q["scheduled_time_left_s"])
         if k == "q_position":
             rest = (f"P{car['position']} in {seg} on {car['best']} ({car['best_compound']})" if car["best"]
-                    else f"yet to set a time in {seg}")
+                    else "yet to set a time (qualifying not started)" if pre else f"yet to set a time in {seg}")
             return fact(f"{code} {rest}", car["position"], [(rf"\b{c}(?:\s+(?:is|sits|runs))?", rest)])
         if k == "q_best":
             if not car["best"]:
-                return fact(f"{code} yet to set a time in {seg}")
+                return fact(f"{code} yet to set a time" + (" (qualifying not started)" if pre else f" in {seg}"))
             rest = f"best in {seg} is {car['best']} on {car['best_compound']}, set {car['best_set_at']} in"
             return fact(f"{code}'s {rest}", car["best"], [(rf"\b{c}(?:'s|’s)", rest)])
         if k == "q_status":
@@ -172,6 +221,8 @@ class QualiView(RaceView):
             return fact(f"{code} {rest}", r["gap_s"], [(rf"\b{c}(?:\s+is)?", rest)])
         if k == "q_cut":
             cut = self.qrivals.get("cut")
+            if pre:
+                return fact("the Q1 cut will be P15 (the top 15 go through to Q2); no times yet", None)
             if not cut:
                 raise Unresolvable(f"{ref.key}: there's no elimination line in {seg}")
             line = f"the {seg} cut is P{cut['cars_through']}"
@@ -188,7 +239,7 @@ class QualiView(RaceView):
         if k == "q_evolution":
             e = q.get("track_evolution") or {}
             if e.get("direction") in (None, "unknown"):
-                return fact(f"the field's lap-time trend in {seg} not measurable yet", None)
+                return fact("the field's lap-time trend not measurable yet" + ("" if pre else f" in {seg}"), None)
             if e["direction"] == "steady":
                 return fact(f"the field's best lap about the same in the last {e['window_minutes']} minutes "
                             f"as in the {e['window_minutes']} before ({e['change_s']:+}s)", e["change_s"])
@@ -198,7 +249,9 @@ class QualiView(RaceView):
         if k == "q_recent_best":
             rb = (q.get("track_evolution") or {}).get("recent_best")
             if not rb:
-                raise Unresolvable(f"{ref.key}: no completed laps in the last few minutes of {seg}")
+                raise Unresolvable(f"{ref.key}: no completed laps in the last few minutes of {seg}"
+                                   + ("" if q.get("running") else " (no running since, so there are no recent laps); "
+                                      "cite q_best or q_position for times set, or q_evolution for the trend"))
             return fact(f"the fastest lap in the last 5 minutes: {rb['code']} {rb['time']} on {rb['compound']}",
                         rb["time"], driver=rb["code"])
         if k == "q_on_track":
@@ -234,6 +287,13 @@ class QualiView(RaceView):
 
     # -- claim checks -----------------------------------------------------------
 
+    @staticmethod
+    def _status_mode(low: str, at: int) -> str | None:
+        mode = clause_mode(low, at)
+        if mode == "negated" and not re.search(LOCAL_NEGATION, low[:at]):
+            return None
+        return mode
+
     def _claims(self, template: str, facts: dict[str, Fact], label: str, my_code: str | None) -> list[str]:
         problems: list[str] = []
         codes = {c["code"] for c in self.cars}
@@ -248,18 +308,20 @@ class QualiView(RaceView):
                                     sentence)
             low = plain.lower()
             mentions = sorted([(m.start(), cc) for cc in codes for m in re.finditer(rf"\b{cc}\b", plain)]
+                              + [(m.start(), cc) for nm, cc in getattr(self, "names", {}).items()
+                                 for m in re.finditer(rf"\b{re.escape(nm)}\b", low)]
                               + ([(m.start(), my_code) for m in re.finditer(r"\b(?:our|we|us|my)\b", low)]
                                  if my_code else []))
             fallback = carry
 
             def subject(at: int) -> str | None:
-                before = [cc for i, cc in mentions if i <= at]
-                return before[-1] if before else fallback
-
-            def clause_negated(at: int) -> bool:
-                clause = re.split(r"[.;,:!?]|\bbut\b|\bthough\b", low[:at])[-1]
-                return bool(re.search(r"\bnot\b|n't|\bno longer\b|\bnever\b|\bwithout\b|\bif\b|\bwhether\b|\bunless\b",
-                                      clause))
+                before = [(i, cc) for i, cc in mentions if i <= at and not re.search(PREP_OBJECT, low[:i])]
+                # only this clause, after the last driver named, can say "cars"/"rivals"
+                start = max([before[-1][0]] if before else [0])
+                start = max([start] + [mm.end() for mm in re.finditer(CLAUSE_BREAK, low[:at])])
+                if re.search(GENERIC_SUBJECT, low[start:at]):
+                    return None
+                return before[-1][1] if before else fallback
 
             # drying is a present trend once rain earlier in the session has stopped for a few
             # minutes (the same test that allows a "drying" claim), so denying it is checked too
@@ -313,34 +375,56 @@ class QualiView(RaceView):
                                                    if e.get("change_s") is not None else " (not measurable yet)"))
 
             for m in re.finditer(RAINING, low):
-                if not clause_negated(m.start()) and not w.get("raining"):
+                mode = clause_mode(low, m.start())
+                if mode is None and not w.get("raining"):
                     problems.append(f'{label} says "{m.group(0)}", but the latest weather reading has no rain')
+                elif mode == "negated" and w.get("raining"):
+                    problems.append(f'{label} denies "{m.group(0)}", but it is raining in the latest reading')
             for m in re.finditer(RAIN_STOPPED, low):
                 if w.get("raining"):
                     problems.append(f'{label} says "{m.group(0)}", but it is raining in the latest reading')
 
+            # "no cars on track" / "HAM is not in the garage" are denials: checked the
+            # other way round, so they're flagged only when the denied status is true
             for pat, want in ((ON_TRACK, {"out lap", "on a lap"}), (IN_GARAGE, {"garage"})):
                 for m in re.finditer(pat, low):
-                    if clause_negated(m.start()):
+                    mode = self._status_mode(low, m.start())
+                    if mode == "hypothetical":
+                        continue
+                    # "no cars on track" is about the whole field: checked against the count
+                    clause = re.split(r"[.;,:!?]|\bbut\b|\bthough\b", low[:m.start()])[-1]
+                    if pat == ON_TRACK and re.search(r"\b(?:no|zero) (?:cars?|one|drivers?|runners?)\b|\bnobody\b", clause):
+                        n = ((self.quali.get("on_track") or {}).get("count") or 0)
+                        if n:
+                            problems.append(f'{label} says no cars are "{m.group(0)}", but {n} '
+                                            f"car{'s are' if n != 1 else ' is'} on track")
+                        continue
+                    if re.search(ACTION_LEAD, low[:m.start()]):
                         continue
                     code = subject(m.start())
                     st = _view_status(self.car(code))
-                    if code and st and st not in want:
+                    if not code or not st:
+                        continue
+                    if mode is None and st not in want:
                         problems.append(f'{label} says {code} is "{m.group(0)}", but {code} is '
+                                        f"{STATUS_WORDS.get(st, st)}")
+                    elif mode == "negated" and st in want:
+                        problems.append(f'{label} denies {code} is "{m.group(0)}", but {code} is '
                                         f"{STATUS_WORDS.get(st, st)}")
 
             if cut:
                 for pat, outside in ((DROP_ZONE, True), (SAFE, False)):
                     for m in re.finditer(pat, low):
-                        if clause_negated(m.start()):
+                        mode = self._status_mode(low, m.start())
+                        if mode == "hypothetical":
                             continue
                         code = subject(m.start())
                         car = self.car(code)
                         if not car:
                             continue
                         is_out = car["position"] > cut or not car["best"]
-                        if outside != is_out:
-                            problems.append(f'{label} says {code} is "{m.group(0)}", but {code} is P{car["position"]}'
+                        if (outside != is_out) if mode is None else (outside == is_out):
+                            problems.append(f'{label} {"denies" if mode else "says"} {code} is "{m.group(0)}", but {code} is P{car["position"]}'
                                             f" with the cut at P{cut}" + ("" if car["best"] else " (no time yet)"))
             if mentions:
                 carry = mentions[-1][1]
