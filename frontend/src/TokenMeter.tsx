@@ -17,7 +17,7 @@ export function TokenMeter({ usage }: { usage?: Usage | null }) {
         Tokens: {fmt(t.input_tokens)} in ({fmt(t.cached_input_tokens)} cached) · {fmt(t.output_tokens)} out ·{" "}
         {t.requests} request{t.requests === 1 ? "" : "s"} · <strong>{usd(t.cost_usd)}</strong>
       </summary>
-      <table>
+      <div style={{ overflowX: "auto" }}><table>
         <thead><tr><th>Agent run</th><th>Requests</th><th>Input</th><th>Cached input</th><th>Output</th><th>Cost</th></tr></thead>
         <tbody>
           {usage.runs.map((r, i) => (
@@ -28,7 +28,7 @@ export function TokenMeter({ usage }: { usage?: Usage | null }) {
             </tr>
           ))}
         </tbody>
-      </table>
+      </table></div>
       {usage.prices_per_mtok && (
         <p>
           {usage.model}: ${usage.prices_per_mtok.input} input, ${usage.prices_per_mtok.cached_input} cached input,

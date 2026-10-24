@@ -331,19 +331,50 @@ fermé, classification, gap and interval, the championships, and two history
 entries). Add an entry under `## id: Title` with a `keywords:` line to extend
 it.
 
-## Favorites and theming
+## The app (frontend)
 
-The **Favorites** bar (guest mode: nothing is saved) picks a favorite team and
-driver. The app takes one accent color from the team's livery (Ferrari red,
-McLaren papaya, Mercedes teal, Red Bull navy, Aston Martin green, Williams
-blue, Alpine blue, Racing Bulls blue, Haas grey, Sauber green) for the title
-bar, buttons, the decision panel and your row in the timing table, and the
-favorite driver becomes "my driver" whenever they're in the chosen session.
-Colors live in `frontend/src/Favorites.tsx`.
+A dark, phone-first web app: near-black background, dark cards, one accent
+color. Inter for the interface, JetBrains Mono with tabular numerals for every
+time, gap and lap (both bundled, no font CDN). It's installable (web app
+manifest, `viewport-fit=cover`, safe-area insets) and scales from a 375 px
+phone to a two-column laptop layout. Every control is custom: dropdowns,
+segmented controls, a toggle switch for the token meter, pill buttons.
+
+- **Landing:** "Pit Wall · Run the strategy. Beat the real team." with **Try
+  demo** (guest, nothing saved) or **Sign in / Create account**. Accounts are
+  local to the browser (`frontend/src/account.ts`): a display name and your
+  favorites in `localStorage`, no password, nothing sent to the server.
+- **Session bar and setup:** session (race / qualifying / sprint), weekend and
+  driver pickers, with your favorite team and driver as chips in the team color.
+- **Control bar:** lap counter (or Q-segment time left), weather and track-temp
+  badge, start / pause, speed, and "Ask strategy".
+- **Timing tower:** position, a team-color bar, driver code, interval and gap
+  in tabular mono, the tire as a colored dot (soft red, medium yellow, hard
+  white, inter green, wet blue) with its age, and IN / OUT pit status; your
+  row is highlighted in the accent. Qualifying shows best laps, the tire each
+  was set on, live status, and a drop-zone line.
+- **Decision card:** the trigger, Strategy's call as a big colored word (BOX,
+  STAY OUT, GO OUT, ...), the reason, the Engineer's line, the crew's working
+  (Rival Watch, evidence, cited facts, grounding retries, cleanups) folded
+  away, and large action buttons.
+- **Scorecard:** the Grader's headline, three tiles (you vs the real team,
+  Strategy vs the real team, you vs Strategy), the biggest call, and every
+  decision.
+- **Ask AI:** the round button bottom-right opens the Historian chat from
+  anywhere (a bottom sheet on phones, a side drawer on laptops).
+
+### Favorites and theming
+
+Pick a favorite team and driver from the chips or the account menu. The
+accent follows the team's livery (Ferrari red, McLaren papaya, Mercedes teal,
+Red Bull blue, Aston Martin green, Williams blue, Alpine pink, Racing Bulls
+blue, Haas grey, Sauber green; F1 red by default), and the favorite driver
+becomes "my driver" whenever they're in the chosen session. Colors live in
+`frontend/src/Favorites.tsx`.
 
 ## Token meter
 
-Tick **Token meter (dev view)** to show, under every AI answer (Strategy
+Turn on the **Tokens** switch (top bar on laptops, account menu everywhere) to show, under every AI answer (Strategy
 decisions, Ask AI answers and the Grader's scorecard), the tokens it really
 used and what it cost; each decision's cost also shows in the decision log.
 

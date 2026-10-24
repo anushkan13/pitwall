@@ -1,0 +1,13 @@
+{
+  "name": "Pit Wall",
+  "short_name": "Pit Wall",
+  "description": "Run the strategy. Beat the real team.",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#07080a",
+  "theme_color": "#07080a",
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}
