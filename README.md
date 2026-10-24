@@ -1,6 +1,12 @@
 # Pitwall
 
-Working name. Skeleton only — no race logic yet.
+**Live: LIVE_URL_PENDING** (Render free tier: the first load after a quiet spell
+takes about a minute; see [Deployment](#deployment)).
+
+An F1 strategy game on real 2025 data: replay a race, qualifying session or
+sprint as a driver's pit wall, make the calls at each decision point with an
+AI crew whose every number is checked against the data, and get graded
+against what the real team did.
 
 Same architecture as hw5 (Campus Customs):
 
@@ -9,7 +15,7 @@ Same architecture as hw5 (Campus Customs):
 | MCP server | `mcp_server/` | FastMCP server over stdio. Race tools that only answer for laps already run. |
 | Agent team | `backend/team.py` | PydanticAI Race Engineer, Strategy, Rival Watch, Grader and Historian on `gpt-6-luna` through Portkey. |
 | Backend | `backend/` | FastAPI on port 8000: sim clock, decision points, API. Reads races only through MCP. |
-| Frontend | `frontend/` | React + Vite + TypeScript on port 5173: race strategy mode. |
+| Frontend | `frontend/` | React + Vite + TypeScript on port 5173: race, qualifying and sprint modes. The built app (`frontend/dist`) is committed and served by the backend in production. |
 | Data | `data/` | `races.db`, the read-only race database, built by `scripts/bake_race.py`; `knowledge/f1_rules.md`, the curated rules and history file. |
 | Scripts | `scripts/` | `bake_race.py`: bakes a season or one round into `data/races.db`. |
 | User data | `data/pitwall_user.db` | Sim clock, decisions, scorecards. Created by the backend; gitignored. |
@@ -22,6 +28,8 @@ From this folder (`Pitwall/`):
 ```bash
 python3.11 -m venv .venv
 .venv/bin/pip install -r requirements.txt
+# only to re-bake data/races.db:
+.venv/bin/pip install -r requirements-bake.txt
 cd frontend && npm install && cd ..
 ```
 
@@ -476,6 +484,30 @@ stdio, both from `mcp.json`. `.mcp.json` lets Claude Code connect to it too. To 
 ```
 
 It then waits for an MCP client on stdin/stdout (Ctrl+C to stop).
+
+## Deployment
+
+Live at **LIVE_URL_PENDING**, on Render's free tier, from `render.yaml`.
+
+**One web service runs everything**: the FastAPI backend, the built frontend
+(`frontend/dist`, committed, so Render needs no Node), and the MCP server,
+which the backend starts as a child process over stdio. It reads the baked
+`data/races.db` from the repo. Build: `pip install -r requirements.txt`
+(the app only; FastF1 is in `requirements-bake.txt`). Start:
+`python -m uvicorn main:app --app-dir backend --host 0.0.0.0 --port $PORT --workers 1`.
+
+- **One clock.** One instance and one worker, so one sim loop. The sim clock
+  is global to the server: everyone who opens the link shares the same
+  session, so on grading day one person should drive at a time.
+- **Secrets.** The only env var is `PORTKEY_API_KEY`, set in the Render
+  dashboard (`sync: false` in the blueprint). Nothing secret is in the repo.
+- **State.** `data/pitwall_user.db` (clock, decisions, scorecards) lives on
+  Render's ephemeral disk and resets when the service sleeps or redeploys.
+- **Cold start.** Free services sleep after 15 minutes without traffic. The
+  first request after that waits for Render to wake the service; measured
+  times are below. Open the link a few minutes before anyone needs it.
+- **Redeploying UI changes.** Rebuild the frontend before committing:
+  `cd frontend && npm run build`.
 
 ## Stopping
 
