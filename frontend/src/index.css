@@ -716,3 +716,17 @@ html, body, #root { background: var(--bg); }
 .pod { display: inline-flex; align-items: center; gap: 0.3rem; margin: 0 0.5rem 0 0.2rem; font-size: 0.86rem; }
 .pod .bar { display: inline-block; width: 4px; height: 14px; border-radius: 2px; background: var(--tc); }
 .cal-row .link { justify-self: start; }
+
+/* wide screens: lap + controls and the track map side by side at the top; the tower and the
+   driver panel below. Phones: unchanged (the map stays in the stacked flow). */
+.top-row { display: grid; gap: 0.8rem; }
+.wide-only { display: none; }
+@media (min-width: 900px) {
+  .top-row.with-map { grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); gap: 1rem; align-items: stretch; }
+  .top-row > .card, .top-map > .trackmap { height: 100%; margin: 0; }
+  .top-map { display: block; min-width: 0; }
+  .top-map .trackmap { display: flex; flex-direction: column; }
+  .top-map .tm-svg { flex: 1; max-height: 340px; }
+  .narrow-only { display: none; }
+  .layout { grid-template-areas: "tower side"; grid-template-rows: auto; }
+}

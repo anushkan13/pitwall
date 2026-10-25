@@ -84,7 +84,7 @@ through.
   under the map. A tap picks the nearest dot (or its label) and spotlights
   that car in the driver panel. It reads only the current lap's race state,
   so nothing from later appears. Labels are placed to avoid colliding, with
-  leader lines in tight packs. On phones the map comes first.
+  leader lines in tight packs. On laptops the map sits beside the lap counter, controls and race control at the top; on phones it comes right after them.
 - **Following** (`POST /api/sim/follow`): switch drivers mid-session without
   restarting. The label, the theme, the highlighted row, the driver panel and
   the key moments all switch right away.

@@ -12,6 +12,15 @@ const SF_FROM_START = 150;      // the start/finish line: this far along the pat
 const BATTLE_S = 1.0;           // within a second of the car ahead: a battle
 const GRID_STEP = 0.011;        // on the grid, cars sit this fraction of a lap apart
 
+/** The label's real width in SVG units (its font size is in SVG units too), from the actual font. */
+let measureCtx: CanvasRenderingContext2D | null = null;
+function textWidth(text: string, size: number): number {
+  measureCtx = measureCtx ?? document.createElement("canvas").getContext("2d");
+  if (!measureCtx) return text.length * size * 0.72;
+  measureCtx.font = `800 ${size}px "Inter Variable", Inter, system-ui, sans-serif`;
+  return measureCtx.measureText(text).width + text.length * 0.02 * size;  // + the label's letter-spacing
+}
+
 type Placed = { car: Car; len: number; x: number; y: number; nx: number; ny: number; lapped: boolean };
 
 /** Where each car is on the loop: the leader on the line, everyone else back around it by their
@@ -86,24 +95,32 @@ export function TrackMap({ race, spotlight, onPick }: {
     const order = [...placed].sort((a, b) => Number(b.car.is_my_driver) - Number(a.car.is_my_driver) || a.car.position - b.car.position);
     for (const p of order) {
       const big = p.car.is_my_driver;
-      const w = p.car.code.length * (big ? 9.3 : 8) + (p.car.pitted_end_of_lap || p.car.out_lap ? 20 : 0), h = big ? 14 : 12;
-      let best: { x: number; y: number; anchor: "start" | "middle" | "end"; lead: boolean; box: Box } | null = null;
+      const pitTag = p.car.pitted_end_of_lap ? " IN" : p.car.out_lap ? " OUT" : "";
+      const w = textWidth(p.car.code, big ? 13.5 : 11.5) + (pitTag ? textWidth(pitTag, 9) : 0), h = big ? 14 : 12;
+      type Cand = { x: number; y: number; anchor: "start" | "middle" | "end"; lead: boolean; box: Box; cost: number };
+      const overlap = (b: Box, list: Box[]) => list.reduce((sum, o) =>
+        sum + Math.max(0, Math.min(b.x1, o.x1) - Math.max(b.x0, o.x0)) * Math.max(0, Math.min(b.y1, o.y1) - Math.max(b.y0, o.y0)), 0);
+      let best: Cand | null = null, fallback: Cand | null = null;
+      // outward first, then inward, then sliding along the track, stepping further out
+      search:
       for (const dist of [14, 26, 38, 50, 62]) {
-        for (const side of [1, -1]) {
-          const nx = p.nx * side, ny = p.ny * side;
-          const cx = p.x + nx * dist, cy = p.y + ny * dist;
-          const anchor: "start" | "middle" | "end" = Math.abs(nx) < 0.35 ? "middle" : nx > 0 ? "start" : "end";
-          const x0 = anchor === "start" ? cx : anchor === "end" ? cx - w : cx - w / 2;
-          const box = { x0: x0 - 1, y0: cy - h / 2 - 1, x1: x0 + w + 1, y1: cy + h / 2 + 1 };
-          const inView = box.x0 > 0 && box.x1 < VIEW.w && box.y0 > 0 && box.y1 < VIEW.h;
-          if (inView && !hits(box, taken) && !hits(box, dots)) { best = { x: cx, y: cy + h / 2 - 2, anchor, lead: dist > 14, box }; break; }
+        for (const slide of [0, 14, -14, 28, -28]) {
+          for (const side of [1, -1]) {
+            const nx = p.nx * side, ny = p.ny * side;
+            const cx = p.x + nx * dist - p.ny * slide, cy = p.y + ny * dist + p.nx * slide;
+            const anchor: "start" | "middle" | "end" = Math.abs(nx) < 0.35 ? "middle" : nx > 0 ? "start" : "end";
+            const x0 = anchor === "start" ? cx : anchor === "end" ? cx - w : cx - w / 2;
+            const box = { x0: x0 - 4, y0: cy - h / 2 - 1.5, x1: x0 + w + 4, y1: cy + h / 2 + 1.5 };  // with breathing room
+            if (!(box.x0 > 0 && box.x1 < VIEW.w && box.y0 > 0 && box.y1 < VIEW.h)) continue;
+            const cand = { x: cx, y: cy + h / 2 - 2, anchor, lead: dist > 14 || slide !== 0, box,
+                           cost: overlap(box, taken) + overlap(box, dots) + dist + Math.abs(slide) };
+            if (!hits(box, taken) && !hits(box, dots)) { best = cand; break search; }
+            if (!fallback || cand.cost < fallback.cost) fallback = cand;
+          }
         }
-        if (best) break;
       }
-      if (!best) {  // nowhere free: the nearest outside spot
-        const cx = p.x + p.nx * 14, cy = p.y + p.ny * 14;
-        best = { x: cx, y: cy + 4, anchor: "middle", lead: false, box: { x0: cx - w / 2, y0: cy - 6, x1: cx + w / 2, y1: cy + 6 } };
-      }
+      best = best ?? fallback ?? { x: p.x, y: p.y - 12, anchor: "middle", lead: false,
+                                   box: { x0: p.x - w / 2, y0: p.y - 18, x1: p.x + w / 2, y1: p.y - 6 }, cost: 0 };
       taken.push(best.box);
       labels.set(p.car.code, { x: best.x, y: best.y, anchor: best.anchor, lead: best.lead,
                                dx: (best.box.x0 + best.box.x1) / 2, dy: (best.box.y0 + best.box.y1) / 2 });

@@ -188,9 +188,15 @@ export default function App() {
           </section>
         )}
 
-        {tab === "watch" && loaded && sim && (quali
-          ? <QualiControl sim={sim} code={myCode} run={run}><RaceControlStrip rc={sim.race_control} onAsk={askAbout} /></QualiControl>
-          : <RaceControl sim={sim} code={myCode} run={run} sprint={sprint}><RaceControlStrip rc={sim.race_control} onAsk={askAbout} /></RaceControl>)}
+        {tab === "watch" && loaded && sim && (
+          <div className={`top-row ${!quali && sim.race ? "with-map" : ""}`}>
+            {quali
+              ? <QualiControl sim={sim} code={myCode} run={run}><RaceControlStrip rc={sim.race_control} onAsk={askAbout} /></QualiControl>
+              : <RaceControl sim={sim} code={myCode} run={run} sprint={sprint}><RaceControlStrip rc={sim.race_control} onAsk={askAbout} /></RaceControl>}
+            {/* wide screens: the map beside the lap and controls (phones keep it lower, below) */}
+            {!quali && sim.race && <div className="wide-only top-map"><TrackMap race={sim.race} spotlight={spotlight} onPick={setSpotlight} /></div>}
+          </div>
+        )}
 
         {tab === "watch" && loaded && sim?.scorecard && (quali
           ? <QualiRecap sc={sim.scorecard} code={myCode} onRetry={() => run(api.grade())} />
@@ -204,7 +210,7 @@ export default function App() {
 
         {tab === "watch" && loaded && sim && (
           <div className="layout">
-            {!quali && sim.race && <div className="lay-map"><TrackMap race={sim.race} spotlight={spotlight} onPick={setSpotlight} /></div>}
+            {!quali && sim.race && <div className="lay-map narrow-only"><TrackMap race={sim.race} spotlight={spotlight} onPick={setSpotlight} /></div>}
             <div className="lay-tower">
               {quali ? <QualiTower sim={sim} entries={entries?.entries ?? []} onPick={setSpotlight} />
                      : sim.race && <RaceTower race={sim.race} onPick={setSpotlight} spotlight={spotlight} />}
