@@ -21,7 +21,7 @@ from typing import Literal
 os.environ.setdefault("PYDANTIC_AI_NO_BANNER", "1")
 
 from fastapi import FastAPI, HTTPException  # noqa: E402
-from fastapi.responses import FileResponse  # noqa: E402
+from fastapi.responses import FileResponse, Response  # noqa: E402
 from fastapi.staticfiles import StaticFiles  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 from pydantic import BaseModel, Field  # noqa: E402
@@ -371,14 +371,51 @@ async def grade() -> dict:
 
 DIST = BACKEND_DIR.parent / "frontend" / "dist"
 
+# Caching, so a new deploy reaches returning visitors on their next load:
+#   index.html (and every page route): "no-cache" = the browser must check with
+#     the server every time (the page is about 1 KB, so that costs nothing). Without a
+#     Cache-Control header, browsers cache it heuristically and keep showing an
+#     old build that points at old bundles.
+#   /assets/*: content-hashed file names, so they're safe to keep for a year.
+#   /sw.js: the app has no service worker; this one only removes any that a
+#     browser might still have registered (skipWaiting, claim, clear, unregister).
+NO_CACHE = {"Cache-Control": "no-cache"}
+IMMUTABLE = {"Cache-Control": "public, max-age=31536000, immutable"}
+KILL_SW = """// Pit Wall has no service worker. If a browser still has one registered,
+// this replaces it at once, clears its caches, unregisters, and reloads the tabs.
+self.addEventListener("install", () => self.skipWaiting());
+self.addEventListener("activate", (event) => {
+  event.waitUntil((async () => {
+    await self.clients.claim();
+    for (const key of await caches.keys()) await caches.delete(key);
+    await self.registration.unregister();
+    for (const client of await self.clients.matchAll({ type: "window" })) client.navigate(client.url);
+  })());
+});
+"""
+
+
+class HashedAssets(StaticFiles):
+    async def get_response(self, path: str, scope):  # type: ignore[override]
+        response = await super().get_response(path, scope)
+        if response.status_code == 200:
+            response.headers.update(IMMUTABLE)
+        return response
+
+
 if DIST.exists():
-    app.mount("/assets", StaticFiles(directory=DIST / "assets"), name="assets")
+    app.mount("/assets", HashedAssets(directory=DIST / "assets"), name="assets")
+
+    @app.get("/sw.js", include_in_schema=False)
+    @app.get("/service-worker.js", include_in_schema=False)
+    async def no_service_worker() -> Response:
+        return Response(KILL_SW, media_type="text/javascript", headers=NO_CACHE)
 
     @app.get("/{path:path}", include_in_schema=False)
     async def frontend(path: str) -> FileResponse:
         if path.startswith("api/"):
             raise HTTPException(404, "No such API route.")
         file = (DIST / path).resolve()
-        if path and file.is_file() and DIST in file.parents:
-            return FileResponse(file)
-        return FileResponse(DIST / "index.html")
+        if path and file.is_file() and DIST in file.parents and file.name != "index.html":
+            return FileResponse(file, headers=NO_CACHE)
+        return FileResponse(DIST / "index.html", headers=NO_CACHE)

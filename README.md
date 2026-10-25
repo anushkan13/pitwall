@@ -455,6 +455,16 @@ segmented controls, a toggle switch for the token meter, pill buttons.
   newcomer questions; "Ask why" and "Why?" buttons around the app open it
   with the question already asked.
 
+### Caching and deploys
+
+A new deploy reaches returning visitors on their next load. `index.html` (and
+every page route) is served `Cache-Control: no-cache`, so browsers always
+check for the latest page. The content-hashed `/assets/*` bundles are cached
+for a year as immutable, since every build gets new file names. There's no
+service worker; `/sw.js` is a self-removing one (skipWaiting, claim, clear
+caches, unregister) in case a browser ever picked one up, and the app
+unregisters any it finds on load. The account menu shows the build stamp.
+
 ### Favorites and theming
 
 Pick a favorite team and driver from the chips or the account menu. The

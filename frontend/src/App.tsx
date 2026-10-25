@@ -260,6 +260,7 @@ export default function App() {
             </div>
           )}
           <button className="btn sm outline" style={{ justifySelf: "start" }} onClick={() => { setSheet(null); setMode("landing"); }}>Back to start</button>
+          <p className="tiny dim" style={{ margin: 0 }}>Build {__BUILD_ID__}</p>
         </Sheet>
       )}
       {(sheet === "signin" || sheet === "create") && (
