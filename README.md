@@ -55,6 +55,17 @@ through.
   championship kinds; at least three must be used). Standings or counts typed
   as words, and claims that someone leads, won or retired, are checked against
   the data.
+- **Track map** (`frontend/src/TrackMap.tsx`, race and sprint): a stylized loop
+  with a dot per car, colored by team and labelled with the driver code. The
+  leader sits on the start/finish line and everyone else trails back by their
+  real gap to the leader, as a fraction of the field's typical lap time that
+  lap, so close battles bunch up and big gaps spread out. Lapped cars wrap
+  around. The followed driver is larger and ringed in the team accent; a car
+  pitting is a hollow dot marked IN or OUT; battles within a second are listed
+  under the map. A tap picks the nearest dot (or its label) and spotlights
+  that car in the driver panel. It reads only the current lap's race state,
+  so nothing from later appears. Labels are placed to avoid colliding, with
+  leader lines in tight packs. On phones the map comes first.
 - **Following** (`POST /api/sim/follow`): switch drivers mid-session without
   restarting. The label, the theme, the highlighted row, the driver panel and
   the key moments all switch right away.

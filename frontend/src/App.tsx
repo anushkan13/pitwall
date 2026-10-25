@@ -8,6 +8,7 @@ import { DriverPanel, PreviewCard } from "./Focus";
 import { MomentsLog, RaceControlStrip } from "./Moment";
 import { QualiControl, QualiMoment, QualiRecap, QualiTower, qualiText } from "./Quali";
 import { RaceControl, RaceMoment, RaceRecap, RaceTower, raceText } from "./Race";
+import { TrackMap } from "./TrackMap";
 import { Icon, Seg, Select, Sheet, Switch } from "./ui";
 
 const SESSION_LABEL: Record<Session, string> = { race: "Race", qualifying: "Qualifying", sprint: "Sprint" };
@@ -214,8 +215,11 @@ export default function App() {
 
         {loaded && sim && (
           <div className="layout">
-            <div>{quali ? <QualiTower sim={sim} entries={entries?.entries ?? []} onPick={setSpotlight} />
-                        : sim.race && <RaceTower race={sim.race} onPick={setSpotlight} spotlight={spotlight} />}</div>
+            {!quali && sim.race && <div className="lay-map"><TrackMap race={sim.race} spotlight={spotlight} onPick={setSpotlight} /></div>}
+            <div className="lay-tower">
+              {quali ? <QualiTower sim={sim} entries={entries?.entries ?? []} onPick={setSpotlight} />
+                     : sim.race && <RaceTower race={sim.race} onPick={setSpotlight} spotlight={spotlight} />}
+            </div>
             <div className="side">
               <DriverPanel sim={sim} code={spotlight ?? myCode} followed={myCode} team={followedTeam}
                            onFocus={setSpotlight} onAsk={askAbout} />

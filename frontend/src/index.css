@@ -514,3 +514,32 @@ hr.sep { border: 0; border-top: 1px solid var(--line); margin: 0.2rem 0; }
   .topbar { gap: 0.4rem; padding-left: 0.8rem; padding-right: 0.8rem; }
   .follow-chip { padding: 0.25rem 0.6rem; font-size: 0.78rem; }
 }
+
+/* ---------- track map ---------- */
+.trackmap { background: radial-gradient(80% 90% at 50% 45%, color-mix(in srgb, var(--accent) 7%, var(--card)), var(--card)); }
+.tm-svg { display: block; width: 100%; height: auto; padding: 0.2rem 0.4rem 0; overflow: visible; touch-action: manipulation; }
+.tm-kerb { fill: none; stroke: #2a2f37; stroke-width: 15; stroke-linejoin: round; }
+.tm-road { fill: none; stroke: #15181d; stroke-width: 11; stroke-linejoin: round; }
+.tm-sf rect { fill: #fff; }
+.tm-sf text { fill: var(--dim); font: 700 7px var(--sans); letter-spacing: 0.12em; }
+.tm-battle { fill: none; stroke: var(--warn); stroke-width: 5; stroke-linecap: round; opacity: 0.75; }
+.tm-car { cursor: pointer; }
+.tm-car:focus { outline: none; }
+.tm-car:focus-visible .tm-dot { stroke: #fff; stroke-width: 2.5; }
+.tm-hit { fill: transparent; }
+.tm-dot { transition: cx 0.6s ease, cy 0.6s ease; }
+.tm-ring { fill: none; stroke: var(--accent); stroke-width: 3; filter: drop-shadow(0 0 4px var(--accent)); }
+.tm-spot { fill: none; stroke-width: 2; stroke-dasharray: 3 2; }
+.tm-label { fill: #e8ebef; font: 800 11.5px var(--sans); letter-spacing: 0.02em; paint-order: stroke; stroke: #07080a; stroke-width: 3px; stroke-linejoin: round; cursor: pointer; }
+.tm-car.mine .tm-label { fill: #fff; font-size: 13.5px; }
+.tm-pit { fill: var(--info); font-size: 9px; }
+.tm-car.pit .tm-label { fill: #b9c6d6; }
+.tm-foot { padding: 0.2rem 0.85rem 0.8rem; }
+.tm-lead { stroke: #5f6570; stroke-width: 0.8; pointer-events: none; }
+/* phone: map, then the driver panel and moments, then the tower. Laptop: map over the tower, panel alongside */
+.lay-map { order: -2; }
+@media (min-width: 900px) {
+  .layout { grid-template-areas: "map side" "tower side"; grid-template-rows: auto 1fr; }
+  .lay-map { grid-area: map; } .lay-tower { grid-area: tower; } .layout > .side { grid-area: side; align-self: start; }
+  .layout:not(:has(.lay-map)) { grid-template-areas: "tower side"; }
+}
