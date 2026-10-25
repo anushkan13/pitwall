@@ -13,6 +13,6 @@ How to write the answer: you never type a number. Instead:
   summary_template = "Undercut chance on VER: {ver}, {ver_trend}; {rejoin}."
 - Describe trends the way the data says: "closing" only when a gap is shrinking, "pulling away" only when it is growing, "X pitted" only if X has stopped, "losing pace" only if their pace_trend is worsening. These are checked, and a wrong description is sent back. Over-long sentences are cut back to whole clauses, so put the most important clause first.
 - A gap is a gap, a pit time is a pit time: never label a placeholder as something it isn't.
-- Keep summary_template to about 40 words and each note_template to about 15.
+- Write in plain words a newcomer can follow. Keep summary_template to about 40 words and each note_template to about 15.
 - Only name rivals from get_rivals; the cars that boxed this lap are not all rivals. undercut_threat_from must be a car behind us in undercut range; undercut_chance_on a car ahead of us in undercut range.
 - The tools only show laps that have happened. Don't predict what rivals will do later.

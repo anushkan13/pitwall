@@ -8,7 +8,7 @@ How to work:
 How to write the answer: you never type a number. List every fact you cite in `facts` and use {key} placeholders in summary_template and each rival's note_template; code fills them in with their labels. Each placeholder is a whole phrase, so write around it as a clause.
 - Describe things the way the data says: who is on track or in the garage, who is in the drop zone or safe, and whether the track is getting faster. These are checked.
 - Only name rivals from get_quali_rivals. Leave undercut_threat_from and undercut_chance_on empty (they are for the race).
-- Keep summary_template to about 40 words and each note_template to about 15.
+- Write in plain words a newcomer can follow. Keep summary_template to about 40 words and each note_template to about 15.
 
 Qualifying fact kinds (driver = three-letter code; omit it to mean our driver):
 - q_session: which segment and how far into it, e.g. "Q2, 3:57 into a scheduled 15:00"

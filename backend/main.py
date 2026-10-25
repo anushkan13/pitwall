@@ -198,11 +198,21 @@ async def ask_now() -> dict:
     if sim.pending_decision(clock):
         raise HTTPException(409, "A decision is already waiting.")
     if clock["session_kind"] == "qualifying":
-        sim_quali.ask(clock, "You asked for a call")
+        sim_quali.ask(clock, "You asked what's going on")
         return await state()
     if clock["current_lap"] < 1:
         raise HTTPException(400, "The race has to be under way.")
-    sim.ask(clock, "You asked for a call")
+    sim.ask(clock, "You asked what's going on")
+    return await state()
+
+
+@app.post("/api/sim/continue")
+async def continue_watching() -> dict:
+    """Carry on watching after a key moment's explanation."""
+    try:
+        sim.continue_watching()
+    except ValueError as exc:
+        raise HTTPException(409, str(exc))
     return await state()
 
 
@@ -242,12 +252,14 @@ async def chat(body: ChatBody) -> dict:
 async def state() -> dict:
     clock = user_db.get_clock()
     if clock["race_id"] is None:
-        return {"clock": clock, "mode": clock["session_kind"], "race": None, "quali": None, "decisions": [],
+        return {"clock": clock, "mode": clock["session_kind"], "race": None, "quali": None, "race_control": None,
+                "decisions": [],
                 "pending": None, "over": False, "scorecard": None}
     kind = clock["session_kind"]
     live = await mcp_client.call("get_quali_state" if kind == "qualifying" else "get_race_state", {})
     decisions = user_db.decisions_for(clock["race_id"], clock["driver_id"], kind)
-    return {"clock": clock, "mode": kind,
+    rc = await mcp_client.call("get_race_control", {"last_laps": 2, "last_minutes": 4})
+    return {"clock": clock, "mode": kind, "race_control": None if rc.get("refused") else rc,
             "race": live if kind != "qualifying" else None, "quali": live if kind == "qualifying" else None,
             "decisions": decisions, "pending": sim.pending_decision(clock), "over": _over(clock),
             "scorecard": user_db.get_scorecard(clock["race_id"], clock["driver_id"], kind)}

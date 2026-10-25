@@ -907,6 +907,137 @@ def get_quali_final() -> dict:
 # Ask AI: lap records, the season so far, and the rules file
 # --------------------------------------------------------------------------
 
+# --------------------------------------------------------------------------
+# Race control: flags, safety car, DRS, incidents, penalties
+#
+# Messages are timestamped, so the no-future rule is a time cutoff: in a race or
+# sprint, the moment the leader finished the current lap; in qualifying, the
+# session clock. Nothing sent after that is returned, or used for the status.
+# --------------------------------------------------------------------------
+
+RC_NOISE = re.compile(r"^(?:AWNINGS MAY BE USED|CLEAR IN TRACK SECTOR)|\bBLUE FLAG\b")
+RC_CODES = re.compile(r"\(([A-Z]{3})\)")
+
+
+def _rc_cutoff(clock: dict, sid: int) -> tuple[str | None, str]:
+    if clock["session_kind"] == "qualifying":
+        return clock["session_time_utc"], "the current session time"
+    lap = clock["current_lap"]
+    if lap == 0:
+        start = _q("SELECT MIN(lap_start_utc) AS t FROM laps WHERE session_id = ? AND lap = 1", (sid,))
+        return (start[0]["t"] if start else None), "the start (the cars are on the grid)"
+    end = _q("""SELECT strftime('%Y-%m-%dT%H:%M:%fZ', lap_start_utc, '+' || (lap_time_ms / 1000.0) || ' seconds') AS t
+                FROM laps WHERE session_id = ? AND lap = ? AND position = 1""", (sid, lap))
+    return (end[0]["t"] if end else None), f"the end of lap {lap}"
+
+
+def _track_status(msgs: list[sqlite3.Row]) -> dict:
+    """Replay the messages in order to get the state of the track now."""
+    neutral, red, drs, yellow = None, False, None, set()
+    for m in msgs:
+        text, flag, scope = m["message"].upper(), m["flag"], m["scope"]
+        if m["category"] == "SafetyCar":
+            if "VIRTUAL SAFETY CAR DEPLOYED" in text:
+                neutral = "virtual safety car"
+            elif "VIRTUAL SAFETY CAR ENDING" in text or "VSC ENDING" in text:
+                neutral = "virtual safety car ending"
+            elif "SAFETY CAR DEPLOYED" in text:
+                neutral = "safety car"
+            elif "SAFETY CAR IN THIS LAP" in text:
+                neutral = "safety car coming in this lap"
+        elif flag == "RED":
+            red = True
+        elif flag in ("CLEAR", "GREEN") and scope == "Track":
+            neutral, yellow = None, set()
+            if flag == "GREEN" or "PIT EXIT OPEN" in text:
+                red = False
+        elif flag in ("YELLOW", "DOUBLE YELLOW") and scope == "Sector" and m["sector"] is not None:
+            yellow.add((m["sector"], flag.lower()))
+        elif flag == "CLEAR" and scope == "Sector":
+            yellow = {y for y in yellow if y[0] != m["sector"]}
+        elif m["category"] == "SessionStatus" and "STARTED" in text:
+            red = False
+        if m["category"] == "Drs" or re.fullmatch(r"DRS (?:ENABLED|DISABLED)", text):
+            drs = "enabled" if "ENABLED" in text else "disabled"
+    yellows = sorted(yellow)
+    if red:
+        summary = "red flag: the session is stopped"
+    elif neutral:
+        summary = neutral + (" (the field is slowed and can't overtake)" if neutral in ("safety car", "virtual safety car") else "")
+    elif yellows:
+        summary = "yellow flags in " + ", ".join(f"sector {s}" + (" (double)" if f == "double yellow" else "") for s, f in yellows)
+    else:
+        summary = "green: no flags out"
+    return {"summary": summary, "red_flag": red, "safety_car": neutral, "drs": drs,
+            "yellow_sectors": [{"sector": s, "flag": f} for s, f in yellows]}
+
+
+@mcp.tool
+@_guarded
+def get_race_control(last_laps: int = 3, last_minutes: int = 6, driver: str | None = None) -> dict:
+    """Race control's messages so far: flags (yellow, red, green), the safety car
+    and virtual safety car, DRS enabled or disabled, incidents noted, investigations
+    and penalties, deleted lap times. Plus the track status right now, worked out
+    from them. Works in every session; only messages already sent are returned.
+
+    Args:
+        last_laps: Race / sprint: how many recent laps of messages to list.
+        last_minutes: Qualifying: how many recent minutes of messages to list.
+        driver: Optional three-letter code: also list the latest messages about
+                that car this session (penalties, investigations, deleted laps).
+    """
+    clock = _clock(None)
+    sid = _sid(clock["race_id"], clock["session_kind"])
+    cutoff, as_of = _rc_cutoff(clock, sid)
+    if cutoff is None:
+        return _refuse("No timing for this point of the session yet, so no race control messages.")
+    rows = _q("""SELECT r.*, d.code FROM race_control r LEFT JOIN drivers d USING (driver_id)
+                 WHERE r.session_id = ? AND r.time_utc <= ? ORDER BY r.seq""", (sid, cutoff))
+    quali = clock["session_kind"] == "qualifying"
+    start = _ts(clock.get("session_start_utc")) if quali else None
+
+    def show(m: sqlite3.Row) -> dict:
+        codes = sorted(set(RC_CODES.findall(m["message"])) | ({m["code"]} if m["code"] else set()))
+        out = {"message": m["message"], "category": m["category"], "flag": m["flag"], "cars": codes}
+        if quali and start:
+            out["at"] = _mmss(max(0, (_ts(m["time_utc"]) - start).total_seconds()))
+        else:
+            out["lap"] = m["lap"]
+        return out
+
+    shown = [m for m in rows if not RC_NOISE.search(m["message"].upper())]
+    if quali:
+        now = _ts(cutoff)
+        recent = [m for m in shown if (now - _ts(m["time_utc"])).total_seconds() <= last_minutes * 60]
+    else:
+        lap = clock["current_lap"]
+        recent = [m for m in shown if lap == 0 or (m["lap"] or 0) > lap - max(1, last_laps)]
+    me = _q("SELECT code FROM drivers WHERE driver_id = ?", (clock["driver_id"],))
+    my_code = me[0]["code"] if me else None
+    about = lambda code: [show(m) for m in shown if code and f"({code})" in m["message"]][-3:]  # noqa: E731
+    texts = " | ".join(m["message"].upper() for m in rows)
+    out = {"as_of": as_of, "track_status": _track_status(rows),
+           "recent": [show(m) for m in recent][-15:],
+           "my_driver_messages": about(my_code),
+           # whether each has happened at all this session (for "after the safety car" etc.)
+           "so_far": {"safety_car": bool(re.search(r"(?<!VIRTUAL )SAFETY CAR DEPLOYED", texts)),
+                      "virtual_safety_car": "VIRTUAL SAFETY CAR DEPLOYED" in texts,
+                      "red_flag": any(m["flag"] == "RED" for m in rows),
+                      "yellow_flag": any(m["flag"] in ("YELLOW", "DOUBLE YELLOW") for m in rows),
+                      "penalty": bool(re.search(r"\bPENALTY\b", texts)),
+                      "investigation": "UNDER INVESTIGATION" in texts or "WILL BE INVESTIGATED" in texts,
+                      # which cars, so "HAM has a penalty" is checked against HAM
+                      "penalised": sorted({c for m in rows if re.search(r"\bPENALTY\b", m["message"].upper())
+                                           and "NO FURTHER" not in m["message"].upper()
+                                           for c in RC_CODES.findall(m["message"])}),
+                      "noted_or_investigated": sorted({c for m in rows if re.search(
+                          r"\bNOTED\b|INVESTIGAT", m["message"].upper()) for c in RC_CODES.findall(m["message"])})},
+           "messages_so_far": len(shown)}
+    if driver:
+        out["driver_messages"] = {"driver": driver.strip().upper(), "messages": about(driver.strip().upper())}
+    return out
+
+
 KNOWLEDGE_FILE = DATA_DIR / "knowledge" / "f1_rules.md"
 # Words too common in questions to say what a question is about.
 _FILLER = {"what", "whats", "who", "how", "does", "the", "this", "that", "race", "races", "f1", "formula",

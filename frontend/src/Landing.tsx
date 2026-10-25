@@ -7,16 +7,16 @@ export function Landing({ onGuest, onAccount }: { onGuest: () => void; onAccount
   return (
     <div className="landing">
       <div className="landing-inner">
-        <div className="eyebrow" style={{ color: "var(--accent)" }}>Real 2025 F1 data · AI race engineers</div>
+        <div className="eyebrow" style={{ color: "var(--accent)" }}>Real 2025 F1 races · explained as they happen</div>
         <div className="hero-mark">PIT<br /><span>WALL</span></div>
-        <div className="tagline">Run the strategy. Beat the real team.</div>
+        <div className="tagline">Make sense of every race, as it unfolds.</div>
         <div className="features">
-          <div><b>Race, qualifying, sprint.</b> Replay real sessions lap by lap and make the calls.</div>
-          <div><b>A crew that can't cheat.</b> Strategy, Rival Watch and the Historian only see what's happened so far.</div>
-          <div><b>Graded at the flag</b> against what the real team actually did.</div>
+          <div><b>Follow a driver through a real race.</b> At every key moment, a friendly explanation of what just happened and why it matters.</div>
+          <div><b>See what the pit wall is weighing.</b> Box or stay out, go now or wait: the tradeoff in plain words, then what the team really did.</div>
+          <div><b>Ask anything, any time.</b> "Why isn't Hamilton pitting?" "Why did the car slow down?" Answers come from the real data, with no spoilers.</div>
         </div>
         <div className="ctas">
-          <button className="btn lg block" onClick={onGuest}>{Icon.play(16)} Try demo</button>
+          <button className="btn lg block" onClick={onGuest}>{Icon.play(16)} Start watching</button>
           <div className="row" style={{ gap: "0.6rem" }}>
             <button className="btn lg ghost" style={{ flex: 1 }} onClick={() => setSheet("signin")}>Sign in</button>
             <button className="btn lg outline" style={{ flex: 1 }} onClick={() => setSheet("create")}>Create account</button>

@@ -141,7 +141,7 @@ def _real_label(a: dict) -> str:
 
 
 def score(decisions: list[dict]) -> dict:
-    graded = [d for d in decisions if d["user_call"] and d["strategy_call"] and (d.get("actual") or {}).get("action")
+    graded = [d for d in decisions if d["strategy_call"] and (d.get("actual") or {}).get("action")
               in ("BOX", "STAY_OUT")]
     n = len(graded)
 
@@ -168,6 +168,7 @@ def score(decisions: list[dict]) -> dict:
         "strategy_mode_vs_inferred": rate(sum(d["strategy_call"] == d["actual"].get("mode") for d in strat_modes),
                                           len(strat_modes)),
         "rows": [{"lap": d["lap"] + 1, "trigger": d["trigger"], "strategy": _label(d["strategy_call"], s_tire(d)),
+                  "reason": d["strategy_reason"],
                   "you": _label(d["user_call"], d["user_tire"]), "real": _real_label(d["actual"]),
                   "real_detail": d["actual"].get("detail"),
                   "strategy_ok": (d["strategy_call"] == "BOX") == real_box(d),
@@ -192,9 +193,9 @@ async def _grade(race_id: int, driver_id: str) -> None:
         stats["real_stops"] = final["my_stops"]
         if not stats["rows"]:
             user_db.save_scorecard(race_id, driver_id, "ready", stats=stats, session_kind="sprint",
-                                   verdict={"headline": "No decision points were called, so there is nothing to grade."})
+                                   verdict={"headline": "No key moments came up for this driver, so there's nothing to recap.", "moments": []})
             return
-        table = "\n".join(f"lap {r['lap']} | {r['trigger']} | Strategy: {r['strategy']} | You: {r['you']} | "
+        table = "\n".join(f"lap {r['lap']} | {r['trigger']} | The data leaned: {r['strategy']} ({r['reason']}) | "
                           f"Real driver: {r['real']} ({r['real_detail']})" for r in stats["rows"])
         rates = "\n".join(f"{k}: {v['matched']}/{v['of']}" for k, v in stats.items()
                           if isinstance(v, dict) and "matched" in v)

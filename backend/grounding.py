@@ -43,12 +43,15 @@ FactKind = Literal[
     "fastest_lap", "fastest_stop", "fastest_pit_lane",
     # the season up to this race
     "drivers_leader", "constructors_leader", "champ_position", "champ_gap", "season_record",
+    # race control, any session
+    "track_status", "race_control",
     # qualifying (grounding_quali.py)
     "q_session", "q_time_left", "q_position", "q_best", "q_status", "q_gap_to", "q_cut", "q_evolution",
     "q_recent_best", "q_on_track", "rain_trend", "track_temp_trend",
 ]
 QUALI_ONLY_KINDS = {"q_session", "q_time_left", "q_position", "q_best", "q_status", "q_gap_to", "q_cut",
                     "q_evolution", "q_recent_best", "q_on_track", "rain_trend", "track_temp_trend"}
+RACE_CONTROL_KINDS = {"track_status", "race_control"}
 NO_CAR_KINDS = {"laps_remaining", "pit_loss", "rejoin_behind", "weather", "boxed_this_lap", "fastest_lap",
                 "fastest_stop", "fastest_pit_lane", "drivers_leader", "constructors_leader"}
 TEAM_KINDS = {"champ_position", "champ_gap", "season_record"}  # driver OR team
@@ -69,6 +72,9 @@ Fact kinds (driver = three-letter code; omit it to mean our driver):
 - rejoin_behind: who we would drop behind if we boxed now
 - weather: current conditions on track
 - boxed_this_lap: which cars pitted at the end of the current lap
+Race control (works in every session):
+- track_status: the flags right now, worked out from race control's messages, e.g. "track status: safety car (the field is slowed and can't overtake); DRS disabled"
+- race_control(driver optional): race control's latest notable message, e.g. 'race control, lap 14: "Safety car deployed"'; with a driver, the latest message about that car (a penalty, an investigation, a deleted lap time)
 Race records so far:
 - fastest_lap: fastest lap of the race so far, e.g. "PIA's lap 41, 99.273s, the fastest lap so far"
 - fastest_stop: shortest stationary time so far, e.g. "TSU's lap-11 stop, 2.1s stationary"
@@ -158,7 +164,22 @@ class RaceView:
         v.state = await call("get_race_state", {})
         v.rivals = await call("get_rivals", {})
         v.pit_log = await call("get_pit_log", {})
+        v.rc = await call("get_race_control", {})
+        await v.load_names()
         return v
+
+    async def load_names(self) -> None:
+        """Surnames, so a lead-in like "Hamilton is on {tires}" counts as naming HAM."""
+        import user_db  # the clock says which race; the MCP tools take no race id
+        race_id = user_db.get_clock().get("race_id")
+        entries = (await self.call("get_entry_list", {"race_id": race_id})).get("entries", []) if race_id else []
+        self.names = {e["name"].split()[-1].lower(): e["code"] for e in entries if e.get("name")}
+
+    def lead_in(self, code: str | None) -> str:
+        if not code:
+            return "^$"
+        names = [re.escape(code.lower())] + [re.escape(n) for n, c in getattr(self, "names", {}).items() if c == code]
+        return "(?:" + "|".join(names) + ")"
 
     @property
     def cars(self) -> list[dict]:
@@ -187,6 +208,7 @@ class RaceView:
         return [s for s in self.pit_log.get("stops", []) if s["code"] == code and s["kind"] == "stop"]
 
     records: dict = field(default_factory=dict)
+    rc: dict = field(default_factory=dict)   # get_race_control: flags, safety car, messages so far
     champs: dict[str, dict] = field(default_factory=dict)
     seasons: dict[str, dict] = field(default_factory=dict)
 
@@ -223,7 +245,7 @@ class RaceView:
                 await self.tire(code)
 
     def check(self, template: str, facts: dict, label: str, my_code: str | None) -> list[str]:
-        return check_claims(template, facts, self, label, my_code)
+        return check_claims(template, facts, self, label, my_code) + race_control_claims(template, self.rc, label)
 
     def gap_to_me(self, car: dict) -> float | None:
         me = self.me
@@ -239,6 +261,8 @@ class Unresolvable(Exception):
 async def resolve(ref: FactRef, v: RaceView, _no_car: bool = False) -> Fact:
     """Look one fact up in the data and render it with its label."""
     k = ref.kind
+    if k in RACE_CONTROL_KINDS:
+        return await resolve_race_control(ref, v)
     if k in QUALI_ONLY_KINDS:
         raise Unresolvable(f"{ref.key}: {k} is a qualifying fact; this is the race")
     if (k in TEAM_KINDS or k in NO_CAR_KINDS) and not _no_car:
@@ -251,7 +275,7 @@ async def resolve(ref: FactRef, v: RaceView, _no_car: bool = False) -> Fact:
     def fact(text: str, value: Any = None, shorts: list[tuple[str, str]] | None = None) -> Fact:
         return Fact(key=ref.key, kind=k, driver=code, text=text, value=value, shorts=shorts or [])
 
-    c = re.escape(code.lower()) if code else "^$"  # lead-in patterns that name this car
+    c = v.lead_in(code)  # lead-in patterns that name this car, by code or surname
 
     if k == "position":
         return fact(f"{code} in P{car['position']}", car["position"],
@@ -343,6 +367,151 @@ async def resolve(ref: FactRef, v: RaceView, _no_car: bool = False) -> Fact:
         return fact(f"{n} {'car' if n == 1 else 'cars'} boxed this lap ({', '.join(boxed)})" if boxed
                     else "nobody boxed this lap", boxed)
     raise Unresolvable(f"{ref.key}: unknown fact kind {k}")
+
+
+def rc_text(message: str) -> str:
+    """Race control writes in capitals; keep codes, flags' sector numbers and times as they are."""
+    text = message.capitalize()
+    text = re.sub(r"\(([a-z]{3})\)", lambda m: f"({m.group(1).upper()})", text)
+    return re.sub(r"\b(fia|drs|vsc|sc)\b", lambda m: m.group(1).upper(), text)
+
+
+def _rc_when(m: dict) -> str:
+    return f"lap {m['lap']}" if m.get("lap") is not None else (f"{m['at']} into the session" if m.get("at") else "")
+
+
+# race control messages worth leading with, most important first
+RC_PRIORITY = [r"RED FLAG", r"SAFETY CAR|VSC", r"PENALTY", r"INVESTIGATION|INVESTIGATED|NOTED", r"DOUBLE YELLOW",
+               r"YELLOW", r"DRS", r"DELETED", r"."]
+
+
+async def resolve_race_control(ref: FactRef, v: "RaceView") -> Fact:
+    k = ref.kind
+    rc = v.rc or await v.call("get_race_control", {})
+    v.rc = rc
+    if rc.get("refused"):
+        raise Unresolvable(f"{ref.key}: {rc.get('reason')}")
+
+    def fact(text: str, value: Any = None, driver: str | None = None) -> Fact:
+        return Fact(key=ref.key, kind=k, driver=driver, text=text, value=value)
+
+    if k == "track_status":
+        t = rc["track_status"]
+        sc, yellows = t.get("safety_car"), t.get("yellow_sectors") or []
+        if t.get("red_flag"):
+            text = "a red flag has stopped the session"
+        elif sc == "safety car":
+            text = "the safety car is out (the field is slowed and can't overtake)"
+        elif sc == "virtual safety car":
+            text = "a virtual safety car is out (the field is slowed and can't overtake)"
+        elif sc:
+            text = f"the {sc.replace(' coming in this lap', ' is coming in this lap').replace(' ending', ' is ending')}"
+        elif yellows:
+            text = ("yellow flags are out in " +
+                    ", ".join(f"sector {y['sector']}" + (" (double yellow)" if y["flag"] == "double yellow" else "")
+                              for y in yellows))
+        else:
+            text = "the track is green, no flags out" + (f", DRS {t['drs']}" if t.get("drs") else "")
+        # "under {ts}" / "behind {ts}" already say it: just the noun
+        noun = ("a red flag" if t.get("red_flag") else "the safety car" if sc in ("safety car", "safety car coming in this lap")
+                else "a virtual safety car" if (sc or "").startswith("virtual") else
+                "yellow flags" if yellows else "green flags")
+        f = fact(text, t["summary"])
+        f.shorts = [(r"\b(?:under|behind)(?:\s+(?:a|an|the))?", noun.split(" ", 1)[1] if noun.startswith(("a ", "the ")) else noun)]
+        return f
+    if ref.driver:
+        code = ref.driver.strip().upper()
+        msgs = (await v.call("get_race_control", {"driver": code})).get("driver_messages", {}).get("messages", [])
+        if not msgs:
+            return fact(f"no race control messages about {code} so far", None, code)
+        m = msgs[-1]
+        return fact(f'race control, {_rc_when(m)}: "{rc_text(m["message"])}"', m["message"], code)
+    recent = rc.get("recent") or []
+    if not recent:
+        return fact(f"no notable race control messages recently (as of {rc['as_of']})")
+    for pat in RC_PRIORITY:
+        hit = [m for m in recent if re.search(pat, m["message"].upper())]
+        if hit:
+            m = hit[-1]
+            return fact(f'race control, {_rc_when(m)}: "{rc_text(m["message"])}"', m["message"],
+                        (m.get("cars") or [None])[0] if len(m.get("cars") or []) == 1 else None)
+    raise Unresolvable(f"{ref.key}: no race control message to cite")
+
+
+# Words that claim something race control would have announced.
+RC_CLAIMS = {
+    "virtual_safety_car": r"\bvirtual safety car\b|\bvsc\b",
+    "safety_car": r"(?<!virtual )\bsafety car\b|\bthe sc\b",
+    "red_flag": r"\bred[- ]flag(?:ged|s)?\b|\bsession (?:is )?stopped\b",
+    # not the medium tire's yellow sidewall
+    "yellow_flag": r"\b(?:double )?yellow(?![- ]?(?:walled|walls?|sidewalls?|bands?|stripes?|marked|tyres?|tires?|\)))(?: flags?)?\b",
+    "penalty": r"\b(?:time )?penalt(?:y|ies|ised|ized)\b",
+    "investigation": r"\bunder investigation\b|\binvestigat(?:ed|ing|ion)\b",
+}
+RC_NOW = r"\b(?:is|are|now|currently|right now|still|out|deployed|on track|under)\b"
+RC_PAST = r"\b(?:earlier|was|were|after|had|previous|before|ago|ended|served)\b"
+
+
+def race_control_claims(template: str, rc: dict, label: str) -> list[str]:
+    """A flag, safety car, penalty or investigation in the agent's own words must
+    match race control: it has to have happened this session, and a claim that
+    it's happening now has to match the track status now."""
+    if not rc or rc.get("refused"):
+        return []
+    problems: list[str] = []
+    low = PLACEHOLDER.sub(" ", template).lower()
+    status = rc.get("track_status") or {}
+    so_far = rc.get("so_far") or {}
+    now = {
+        "safety_car": status.get("safety_car") in ("safety car", "safety car coming in this lap"),
+        "virtual_safety_car": (status.get("safety_car") or "").startswith("virtual"),
+        "red_flag": bool(status.get("red_flag")),
+        "yellow_flag": bool(status.get("yellow_sectors")),
+    }
+    for what, pat in RC_CLAIMS.items():
+        for m in re.finditer(pat, low):
+            if what == "safety_car" and re.search(r"virtual\s*$", low[:m.start()]):
+                continue
+            mode = clause_mode(low, m.start())
+            if mode == "hypothetical":
+                continue
+            # the clause around the match, both sides: "the safety car is out", "under the safety car now"
+            start = max([0] + [b.end() for b in re.finditer(r"[.;,:!?]|\bbut\b|\bwhile\b", low[:m.start()])])
+            stop = re.search(r"[.;,:!?]|\bbut\b|\bwhile\b", low[m.end():])
+            clause = low[start:m.end() + (stop.start() if stop else len(low))]
+            words = what.replace("_", " ")
+            # "a safety car bunches the field up", "penalties are given for...": explaining, not reporting
+            generic = bool(re.search(r"\b(?:a|an|any|each|every|no)\s+(?:virtual\s+|double\s+|time\s+)?$", low[:m.start()])
+                           or re.match(r"s\b", low[m.end():]) or what == "yellow_flag" and "medium" in low[max(0, m.start() - 20):m.start()])
+            if what in ("penalty", "investigation"):
+                # about a named car: that car must have one
+                plain = PLACEHOLDER.sub(" ", template)
+                named = [c.group(0) for c in re.finditer(r"\b[A-Z]{3}\b", plain[start:m.start()])]
+                if not named:
+                    continue
+                who = named[-1]
+                have = so_far.get("penalised" if what == "penalty" else "noted_or_investigated") or []
+                if mode != "negated" and who not in have:
+                    problems.append(f'{label} says {who} has {"an" if what == "investigation" else "a"} {words} '
+                                    f'("{m.group(0)}"), but race control has announced none for {who} this session '
+                                    f'(as of {rc["as_of"]})')
+                elif mode == "negated" and who in have and what == "penalty":
+                    problems.append(f'{label} denies a penalty for {who}, but race control gave {who} one')
+                continue
+            if mode == "negated":
+                if now.get(what):
+                    problems.append(f'{label} denies a {words}, but race control shows {status["summary"]} '
+                                    f'({rc["as_of"]})')
+                continue
+            if generic and not re.search(RC_NOW, clause):
+                continue
+            if not so_far.get(what):
+                problems.append(f'{label} mentions a {words} ("{m.group(0)}"), but race control has announced no '
+                                f'{words} this session (as of {rc["as_of"]})')
+            elif what in now and not now[what] and re.search(RC_NOW, clause) and not re.search(RC_PAST, clause):
+                problems.append(f'{label} says there is a {words} now ("{m.group(0)}"), but race control shows '
+                                f'{status["summary"]} ({rc["as_of"]})')
+    return problems
 
 
 def _pts(x: float) -> str:
@@ -533,6 +702,9 @@ def render(template: str, facts: dict[str, Fact], label: str,
     for key in PLACEHOLDER.findall(template):
         if key not in facts:
             problems.append(f"{label} uses {{{key}}}, which is not one of your facts")
+    # anything else in braces ("{al gap}") would reach the user unfilled
+    for bad in re.findall(r"\{[^{}]*\}", PLACEHOLDER.sub(" ", template)):
+        problems.append(f"{label} has {bad}, which is not a placeholder: keys are single words, e.g. {{alo_gap}}")
     shortened: set[str] = set()
 
     def fill(m: re.Match) -> str:

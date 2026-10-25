@@ -1,7 +1,7 @@
 {
   "name": "Pit Wall",
   "short_name": "Pit Wall",
-  "description": "Run the strategy. Beat the real team.",
+  "description": "Make sense of every race, as it unfolds.",
   "start_url": "/",
   "display": "standalone",
   "orientation": "portrait",

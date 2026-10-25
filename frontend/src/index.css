@@ -400,3 +400,26 @@ hr.sep { border: 0; border-top: 1px solid var(--line); margin: 0.2rem 0; }
 
 .desktop-only { display: none; }
 @media (min-width: 560px) { .desktop-only { display: inline-flex; } }
+
+/* ---------- companion: what's happening ---------- */
+.moment .trigger { font-size: 1.15rem; font-weight: 750; line-height: 1.3; margin: 0.2rem 0 0.9rem; }
+.explain { font-size: 1.02rem; line-height: 1.55; margin: 0.35rem 0 0; }
+.weigh { background: var(--card-2); border: 1px solid var(--line); border-radius: 12px; padding: 0.75rem 0.85rem; }
+.next { border-left: 3px solid var(--accent); padding: 0.15rem 0 0.15rem 0.75rem; }
+.jargon-def { margin: 0.5rem 0 0; background: var(--card-2); border-radius: 10px; padding: 0.55rem 0.7rem; line-height: 1.45; }
+.calls.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.callbox.real .what { color: color-mix(in srgb, var(--accent) 70%, white); }
+.link { background: none; border: 0; padding: 0; color: color-mix(in srgb, var(--accent) 75%, white); font: inherit; font-weight: 650; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+.rc-strip { margin-top: 0.8rem; border-radius: 12px; padding: 0.6rem 0.75rem; background: var(--card-2); border: 1px solid var(--line); border-left: 4px solid var(--ok); }
+.rc-strip.warn { border-left-color: var(--warn); background: color-mix(in srgb, var(--warn) 9%, var(--card-2)); }
+.rc-strip.bad { border-left-color: var(--bad); background: color-mix(in srgb, var(--bad) 10%, var(--card-2)); }
+.rc-now { font-size: 0.9rem; font-weight: 600; margin-top: 0.15rem; }
+.rc-list { margin: 0.4rem 0 0; padding-left: 1rem; font-size: 0.8rem; display: grid; gap: 0.2rem; }
+.recap-moments { margin: 0.6rem 0 0; padding-left: 1.2rem; display: grid; gap: 0.8rem; }
+.recap-title { font-weight: 750; margin-top: 0.1rem; }
+.jargon .chip { font-size: 0.78rem; }
+
+/* Ask AI: the heart of the app, always labelled */
+.fab { width: auto; height: 56px; padding: 0 1.2rem 0 1rem; border-radius: 999px; display: inline-flex; align-items: center; gap: 0.5rem; font-weight: 800; font-size: 1rem; letter-spacing: 0.01em; }
+.fab .lbl { position: static; background: none; border: 0; padding: 0; color: inherit; font-size: inherit; font-weight: inherit; }
+@media (max-width: 559px) { .fab .lbl { display: inline; } }

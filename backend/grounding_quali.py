@@ -22,8 +22,8 @@ from typing import Any, Awaitable, Callable
 
 import user_db
 from grounding import (
-    NO_CAR_KINDS, PLACEHOLDER, TEAM_KINDS, Fact, FactRef, RaceView, Unresolvable, check_labels,
-    clause_mode, default_subject, resolve_season_or_record,
+    NO_CAR_KINDS, PLACEHOLDER, RACE_CONTROL_KINDS, TEAM_KINDS, Fact, FactRef, RaceView, Unresolvable, check_labels,
+    clause_mode, default_subject, race_control_claims, resolve_race_control, resolve_season_or_record,
 )
 
 QUALI_FACT_HELP = """\
@@ -37,6 +37,7 @@ Qualifying fact kinds (driver = three-letter code; omit it to mean our driver):
 - q_cut: the elimination line and our margin to it, e.g. "the Q2 cut is P10 (GAS, 1:51.760); NOR is 0.381s inside it"
 - q_evolution: the field's best lap in the last 5 minutes against the 5 before
 - q_recent_best: the fastest lap in the last 5 minutes, who set it and on what tire
+- track_status / race_control(driver optional): flags, red flags, deleted lap times and penalties from race control
 - q_on_track: how many cars are out and on what tires, e.g. "15 cars on track: 14 on WET, 1 on INTERMEDIATE"
 - weather: rain now, minutes since rain, track temperature
 - rain_trend: how many of the last 10 weather readings had rain
@@ -114,6 +115,7 @@ class QualiView(RaceView):
         v = cls(call)
         v.quali = await call("get_quali_state", {})
         v.qrivals = await call("get_quali_rivals", {})
+        v.rc = await call("get_race_control", {})
         v.drivers = {}
         # surnames, so "Norris is in the garage" is checked against NOR
         race_id = user_db.get_clock().get("race_id")
@@ -150,10 +152,13 @@ class QualiView(RaceView):
         return None
 
     def check(self, template: str, facts: dict, label: str, my_code: str | None) -> list[str]:
-        return check_labels(template, facts, label) + self._claims(template, facts, label, my_code)
+        return (check_labels(template, facts, label) + self._claims(template, facts, label, my_code)
+                + race_control_claims(template, self.rc, label))
 
     async def resolve(self, ref: FactRef) -> Fact:
         k = ref.kind
+        if k in RACE_CONTROL_KINDS:
+            return await resolve_race_control(ref, self)
         if k in TEAM_KINDS or k in {"drivers_leader", "constructors_leader"}:
             return await resolve_season_or_record(ref, self)
         if k not in QUALI_KINDS:
@@ -170,7 +175,7 @@ class QualiView(RaceView):
         if k not in QUALI_NO_CAR and car is None:
             raise Unresolvable(f"{ref.key}: no car '{ref.driver}' still in {seg or 'the session'}")
         code = car["code"] if car else None
-        c = re.escape(code.lower()) if code else "^$"
+        c = self.lead_in(code)
 
         def fact(text: str, value: Any = None, shorts: list | None = None, driver: str | None = code) -> Fact:
             return Fact(key=ref.key, kind=k, driver=driver, text=text, value=value, shorts=shorts or [])

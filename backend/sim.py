@@ -172,10 +172,24 @@ async def _run_team(decision_id: int, trigger: str, lap: int, kind: str = "race"
                       "tool_calls": result.tool_log,
                       "grounding_rejections": result.rejections,
                       "grounding_cleanups": result.cleanups,
+                      "jargon": result.jargon,
                       "usage": result.usage})
     except Exception as exc:
         log.error("team error:\n%s", traceback.format_exc())
         user_db.update_decision(decision_id, status="error", error=f"{exc.__class__.__name__}: {exc}")
+
+
+def continue_watching() -> dict:
+    """The user has read the explanation: the replay carries on. Nobody makes a call;
+    what the real team did is filled in once that lap has been played."""
+    clock = user_db.get_clock()
+    d = pending_decision(clock)
+    if d is None:
+        raise ValueError("There is no key moment waiting.")
+    if d["status"] == "thinking":
+        raise ValueError("The explanation is still being written.")
+    user_db.update_decision(d["id"], user_call="WATCHED", status="decided")
+    return user_db.set_clock(running=1)
 
 
 def make_call(call: str, tire: str | None = None) -> dict:
@@ -204,7 +218,21 @@ async def _resolve_outcomes(clock: dict) -> None:
                                          {"driver": clock["driver_id"], "from_lap": target, "to_lap": target})
             rows = laps.get("laps", [])
             if rows:
-                user_db.update_decision(d["id"], actual_pitted=int(rows[0]["pitted_end_of_lap"]))
+                pitted = bool(rows[0]["pitted_end_of_lap"])
+                d["actual_pitted"] = int(pitted)
+                user_db.update_decision(d["id"], actual_pitted=int(pitted), actual={
+                    "action": "BOX" if pitted else "STAY_OUT",
+                    "detail": (f"boxed at the end of lap {target}" if pitted else
+                               f"stayed out through lap {target} on {rows[0].get('compound') or 'the same'} tires")})
+        # the new tire only shows on the lap after the stop, so it waits for that lap
+        a = d.get("actual") or {}
+        if d["actual_pitted"] == 1 and not a.get("tire") and clock["current_lap"] >= target + 1:
+            nxt = (await mcp_client.call("get_driver_laps", {"driver": clock["driver_id"], "from_lap": target + 1,
+                                                             "to_lap": target + 1})).get("laps", [])
+            if nxt and nxt[0].get("compound"):
+                user_db.update_decision(d["id"], actual={"action": "BOX", "tire": nxt[0]["compound"],
+                                                         "detail": f"boxed at the end of lap {target} for "
+                                                                   f"{nxt[0]['compound']} tires"})
 
 
 # --------------------------------------------------------------------------
@@ -220,7 +248,8 @@ def _label(call: str | None) -> str:
 
 def score(decisions: list[dict]) -> dict:
     """Match rates over the decision points that have a user call and a known real outcome."""
-    graded = [d for d in decisions if d["user_call"] and d["strategy_call"] and d["actual_pitted"] is not None]
+    # key moments whose real outcome is known (the user makes no calls; "you" is kept for old sessions)
+    graded = [d for d in decisions if d["strategy_call"] and d["actual_pitted"] is not None]
     real = lambda d: "BOX" if d["actual_pitted"] else "STAY_OUT"  # noqa: E731
     n = len(graded)
 
@@ -233,7 +262,7 @@ def score(decisions: list[dict]) -> dict:
         "strategy_vs_real": rate(sum(d["strategy_call"] == real(d) for d in graded)),
         "you_vs_strategy": rate(sum(d["user_call"] == d["strategy_call"] for d in graded)),
         "rows": [{"lap": d["lap"] + 1, "trigger": d["trigger"], "strategy": d["strategy_call"],
-                  "you": d["user_call"], "real": real(d)} for d in graded],
+                  "reason": d["strategy_reason"], "you": d["user_call"], "real": real(d)} for d in graded],
     }
 
 
@@ -258,10 +287,10 @@ async def _grade(race_id: int, driver_id: str) -> None:
         stats["real_stops"] = final["my_stops"]
         if not stats["rows"]:
             user_db.save_scorecard(race_id, driver_id, "ready", stats=stats,
-                                   verdict={"headline": "No decision points were called, so there is nothing to grade."})
+                                   verdict={"headline": "No key moments came up for this driver, so there's nothing to recap.", "moments": []})
             return
-        table = "\n".join(f"lap {r['lap']} | {r['trigger']} | Strategy: {_label(r['strategy'])} | "
-                          f"You: {_label(r['you'])} | Real team: {_label(r['real'])}" for r in stats["rows"])
+        table = "\n".join(f"lap {r['lap']} | {r['trigger']} | The data leaned: {_label(r['strategy'])} "
+                          f"({r['reason']}) | Real team: {_label(r['real'])}" for r in stats["rows"])
         rates = "\n".join(f"{k}: {v['matched']}/{v['of']}" for k, v in stats.items()
                           if isinstance(v, dict) and "matched" in v)
         async with PitwallTeam() as team:

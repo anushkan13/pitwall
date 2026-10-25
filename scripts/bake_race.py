@@ -195,6 +195,21 @@ CREATE TABLE IF NOT EXISTS weather (
     PRIMARY KEY (session_id, time_utc)
 );
 
+-- Race control's messages (OpenF1): flags, safety car, DRS, incidents, penalties.
+CREATE TABLE IF NOT EXISTS race_control (
+    session_id   INTEGER NOT NULL REFERENCES sessions(session_id),
+    seq          INTEGER NOT NULL,         -- order within the session
+    time_utc     TEXT NOT NULL,            -- ISO 8601 UTC; the no-future rule filters on this
+    lap          INTEGER,                  -- the leader's lap when it was sent; NULL in qualifying
+    category     TEXT,                     -- Flag / SafetyCar / Drs / SessionStatus / Other
+    flag         TEXT,                     -- GREEN / YELLOW / DOUBLE YELLOW / RED / CLEAR / BLUE / CHEQUERED ...
+    scope        TEXT,                     -- Track / Sector / Driver
+    sector       INTEGER,                  -- marshal sector, when scope is Sector
+    driver_id    TEXT REFERENCES drivers(driver_id),  -- the car it is about, if any
+    message      TEXT NOT NULL,
+    PRIMARY KEY (session_id, seq)
+);
+
 -- Championship standings going INTO this weekend (after the previous round,
 -- so before this weekend's sprint). Empty for round 1.
 CREATE TABLE IF NOT EXISTS driver_standings_before (
@@ -232,7 +247,7 @@ LEFT JOIN weather w
 """
 
 ALL_TABLES = (
-    "lap_weather", "weather", "laps", "pitstops", "results", "qualifying_results",
+    "lap_weather", "race_control", "weather", "laps", "pitstops", "results", "qualifying_results",
     "driver_standings_before", "constructor_standings_before", "sessions", "races",
     "drivers", "teams",
 )
@@ -420,7 +435,7 @@ def fetch_round(f: Fetcher, season: int, rnd: int, event, openf1_sessions: list)
             "laps": f.get(f"{OPENF1}/laps", {"session_key": key}),
             "stints": f.get(f"{OPENF1}/stints", {"session_key": key}),
             "pit": f.get(f"{OPENF1}/pit", {"session_key": key}) if kind != "qualifying" else [],
-            "race_control": f.get(f"{OPENF1}/race_control", {"session_key": key}) if kind != "qualifying" else [],
+            "race_control": f.get(f"{OPENF1}/race_control", {"session_key": key}),
             "weather": f.get(f"{OPENF1}/weather", {"session_key": key}),
             "lap_source": "openf1",
         }
@@ -796,7 +811,7 @@ def write_round(conn: sqlite3.Connection, rd: dict) -> None:
     race_id = season * 100 + rnd
     sids = [race_id * 10 + c for c in SESSION_CODE.values()]
     marks = ",".join("?" * len(sids))
-    for table in ("weather", "laps", "pitstops", "results", "qualifying_results"):
+    for table in ("race_control", "weather", "laps", "pitstops", "results", "qualifying_results"):
         conn.execute(f"DELETE FROM {table} WHERE session_id IN ({marks})", sids)
     for table in ("sessions", "driver_standings_before", "constructor_standings_before", "races"):
         conn.execute(f"DELETE FROM {table} WHERE race_id = ?", (race_id,))
@@ -914,6 +929,15 @@ def write_round(conn: sqlite3.Connection, rd: dict) -> None:
                   to_int(w.get("rainfall")), w.get("humidity"), w.get("pressure"),
                   w.get("wind_speed"), to_int(w.get("wind_direction")))
                  for w in of1["weather"] if w.get("date")])
+            id_of = {n: d for d, n in number_of.items()}
+            msgs = sorted((m for m in of1.get("race_control", []) if m.get("date") and m.get("message")),
+                          key=lambda m: m["date"])
+            conn.executemany(
+                "INSERT INTO race_control VALUES (?,?,?,?,?,?,?,?,?,?)",
+                [(sid, i, iso(parse_ts(m["date"])), None if kind == "qualifying" else m.get("lap_number"),
+                  m.get("category"), m.get("flag"), m.get("scope"), to_int(m.get("sector")),
+                  id_of.get(m.get("driver_number")), m["message"])
+                 for i, m in enumerate(msgs)])
 
     for s in rd["driver_standings"]:
         team = s["Constructors"][-1]["constructorId"] if s.get("Constructors") else None

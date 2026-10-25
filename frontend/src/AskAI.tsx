@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import type { Session } from "./api";
 import { api, type AskAnswer } from "./api";
 import { TokenMeter } from "./TokenMeter";
 import { Icon, More, Sheet } from "./ui";
@@ -6,24 +7,33 @@ import { Icon, More, Sheet } from "./ui";
 export type AskEntry = AskAnswer | { question: string; error: string };
 
 const KIND_LABEL: Record<AskAnswer["kind"], string> = {
-  live_race: "This session, so far",
-  season: "Season, up to this weekend",
-  rules: "Rules file",
-  unknown: "No grounding",
+  live_race: "From this session so far",
+  season: "From the season so far",
+  rules: "From the rules file",
+  unknown: "Can't answer that from the data",
 };
-const SUGGESTIONS = ["What tires is Verstappen on?", "Who's leading the championship?", "What's an undercut?"];
+
+/** Newcomer questions first: the "why" behind what's on screen. */
+const suggestions = (name: string, kind: Session) => kind === "qualifying" ? [
+  `Why is ${name} waiting in the garage?`, "How does qualifying work?", "Why are they on different tires?",
+  "Why did the car slow down?", "What's the pit wall thinking right now?",
+] : [
+  `Why isn't ${name} pitting?`, "What's an undercut?", "Why are they on different tires?",
+  "Why did the car slow down?", "What's the pit wall thinking right now?",
+];
 
 /** The floating Ask button, bottom-right, from anywhere in the app. */
 export function AskFab({ onClick }: { onClick: () => void }) {
   return (
     <button className="fab" onClick={onClick} aria-label="Ask AI">
-      <span className="lbl">Ask AI</span>{Icon.chat(26)}
+      {Icon.chat(22)}<span className="lbl">Ask AI</span>
     </button>
   );
 }
 
-export function AskSheet({ loaded, answers, setAnswers, onClose }: {
+export function AskSheet({ loaded, answers, setAnswers, onClose, name, kind, seed, onSeedUsed }: {
   loaded: boolean; answers: AskEntry[]; setAnswers: (f: (a: AskEntry[]) => AskEntry[]) => void; onClose: () => void;
+  name: string; kind: Session; seed?: string | null; onSeedUsed?: () => void;
 }) {
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
@@ -45,12 +55,18 @@ export function AskSheet({ loaded, answers, setAnswers, onClose }: {
     }
   };
 
+  // opened from an "Ask why" button: ask it straight away
+  const seeded = useRef(false);
+  useEffect(() => {
+    if (seed && loaded && !seeded.current) { seeded.current = true; send(seed); onSeedUsed?.(); }
+  }, []);  // eslint-disable-line react-hooks/exhaustive-deps
+
   return (
     <Sheet title={<span className="row">{Icon.chat(18)} Ask AI</span>} onClose={onClose}
       footer={
         <>
           <input className="input" value={input} disabled={!loaded || busy}
-                 placeholder={loaded ? "Ask about this session, the season, or the rules…" : "Load a session first"}
+                 placeholder={loaded ? "Ask anything: why, what's that, who's…" : "Pick a session to watch first"}
                  onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && send()} />
           <button className="btn" style={{ minWidth: 44, padding: 0, width: 44 }} disabled={!loaded || busy || !input.trim()}
                   onClick={() => send()} aria-label="Send">{Icon.send(18)}</button>
@@ -58,17 +74,26 @@ export function AskSheet({ loaded, answers, setAnswers, onClose }: {
       }>
       {answers.length === 0 && (
         <div className="stack">
+          <p style={{ margin: 0 }}>
+            New to F1, or just curious? Ask about anything on screen: why a driver is or isn't pitting, what a word means, why the cars slowed down.
+          </p>
           <p className="muted small" style={{ margin: 0 }}>
-            The Historian answers from the live session (only what's happened so far), the season up to this weekend,
-            and a curated rules file. If it can't ground an answer, it says so.
+            Answers come from this session so far (no spoilers), the season up to this weekend, race control and a rules
+            file. If the data can't back an answer up, it says so instead of guessing.
           </p>
           <div className="suggest">
-            {SUGGESTIONS.map((s) => <button key={s} className="chip" disabled={!loaded || busy} onClick={() => send(s)}>{s}</button>)}
+            {suggestions(name, kind).map((s) => <button key={s} className="chip" disabled={!loaded || busy} onClick={() => send(s)}>{s}</button>)}
           </div>
         </div>
       )}
       {answers.map((a, i) => <AskItem key={i} a={a} />)}
-      {busy && <div className="msg-a"><div className="thinking" style={{ padding: 0 }}><span className="pulse" /> Checking the data…</div></div>}
+      {answers.length > 0 && !busy && (
+        <div className="suggest">
+          {suggestions(name, kind).filter((s) => !answers.some((a) => a.question === s)).slice(0, 3).map((s) =>
+            <button key={s} className="chip" disabled={!loaded} onClick={() => send(s)}>{s}</button>)}
+        </div>
+      )}
+      {busy && <div className="msg-a"><div className="thinking" style={{ padding: 0 }}><span className="pulse" /> Looking into it…</div></div>}
       <div ref={endRef} />
     </Sheet>
   );

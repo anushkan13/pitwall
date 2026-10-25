@@ -106,6 +106,7 @@ export type Decision = {
     cited?: Fact[];
     grounding_rejections?: { agent: string; problems: string[] }[];
     grounding_cleanups?: { agent: string; note: string }[];
+    jargon?: Jargon[];
     usage?: Usage | null;
   } | null;
   error: string | null;
@@ -117,13 +118,27 @@ export type Decision = {
     pending?: boolean;
     status_at_call?: string;
     when?: string;
-    action?: Call;
+    action?: Call | "OUT";
     tire?: string | null;
     detail?: string;
     mode?: string;
     inferred?: boolean;
   } | null;
 };
+
+export type Jargon = { id: string; title: string; text: string };
+
+export type RCMessage = { message: string; category: string | null; flag: string | null; cars: string[];
+                          lap?: number | null; at?: string };
+export type RaceControl = {
+  as_of: string;
+  track_status: { summary: string; red_flag: boolean; safety_car: string | null; drs: string | null;
+                  yellow_sectors: { sector: number; flag: string }[] };
+  recent: RCMessage[];
+  my_driver_messages: RCMessage[];
+};
+
+export type RecapMoment = { lap: number; title: string; what_happened: string; why: string };
 
 export type Rate = { matched: number; of: number; pct: number | null };
 
@@ -141,6 +156,8 @@ export type Scorecard = {
   } | null;
   verdict: {
     headline: string;
+    moments?: RecapMoment[];
+    takeaway?: string;
     biggest_call_lap?: number;
     biggest_call?: string;
     your_calls?: string;
@@ -207,6 +224,7 @@ export type SimState = {
   decisions: Decision[];
   pending: Decision | null;
   scorecard: Scorecard | null;
+  race_control?: RaceControl | null;
 };
 
 async function req<T>(path: string, body?: unknown): Promise<T> {
@@ -235,6 +253,7 @@ export const api = {
   qualiSpeed: (quali_speed: number) => req<SimState>("/api/sim/speed", { quali_speed }),
   ask: () => req<SimState>("/api/sim/ask", {}),
   call: (call: Call, tire?: Tire) => req<SimState>("/api/sim/call", { call, tire: tire ?? null }),
+  continueWatching: () => req<SimState>("/api/sim/continue", {}),
   grade: () => req<SimState>("/api/sim/grade", {}),
   askAI: (question: string) => req<AskAnswer>("/api/ask", { question }),
   chat: (message: string) => req<{ message: string }>("/api/engineer/chat", { message }),

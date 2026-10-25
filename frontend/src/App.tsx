@@ -4,8 +4,9 @@ import { api, type EntryList, type Session, type SimState } from "./api";
 import { AskFab, AskSheet, type AskEntry } from "./AskAI";
 import { applyAccent, FavoriteChips, FavoritesSheet, teamColor, type Fav } from "./Favorites";
 import { AccountSheet, Landing } from "./Landing";
-import { QualiControl, QualiDecision, QualiLog, QualiScorecard, QualiTower } from "./Quali";
-import { callLabel, DecisionLog, RaceControl, RaceDecision, RaceScorecard, RaceTower, realLabel } from "./Race";
+import { MomentsLog, RaceControlStrip } from "./Moment";
+import { QualiControl, QualiMoment, QualiRecap, QualiTower, qualiText } from "./Quali";
+import { RaceControl, RaceMoment, RaceRecap, RaceTower, raceText } from "./Race";
 import { Icon, Seg, Select, Sheet, Switch } from "./ui";
 
 const SESSION_LABEL: Record<Session, string> = { race: "Race", qualifying: "Qualifying", sprint: "Sprint" };
@@ -29,6 +30,8 @@ export default function App() {
   const [showTokens, setShowTokens] = useState(false);
   const [sheet, setSheet] = useState<null | "ask" | "favorites" | "menu" | "signin" | "create">(null);
   const [editSetup, setEditSetup] = useState(false);
+  const [askSeed, setAskSeed] = useState<string | null>(null);
+  const askAbout = (q: string | null) => { setAskSeed(q); setSheet("ask"); };
 
   const setFav = (f: Fav) => {
     setFavState(f);
@@ -106,14 +109,16 @@ export default function App() {
   const quali = kind === "qualifying";
   const sprint = kind === "sprint";
   const pending = sim?.pending;
-  const myCode = entries?.entries.find((e) => e.driver_id === clock?.driver_id)?.code ?? clock?.driver_id ?? "";
+  const myEntry = entries?.entries.find((e) => e.driver_id === clock?.driver_id);
+  const myCode = myEntry?.code ?? clock?.driver_id ?? "";
+  const myName = myEntry?.name.split(" ").slice(-1)[0] ?? myCode;
   const loadedRace = races.find((r) => r.race_id === clock?.race_id);
   const showSetup = !loaded || editSetup;
 
   const setup = (
     <section className="card">
       <div className="card-head">
-        <h2>{loaded ? "Change session" : "Set up a session"}</h2>
+        <h2>{loaded ? "Change session" : "Pick a session to watch"}</h2>
         {loaded && <button className="icon-btn" onClick={() => setEditSetup(false)} aria-label="Close">{Icon.close(16)}</button>}
       </div>
       <div className="stack">
@@ -121,7 +126,7 @@ export default function App() {
              options={(["race", "qualifying", "sprint"] as Session[]).map((s) => ({ value: s, label: SESSION_LABEL[s] }))} />
         <Select label="Weekend" value={raceId} onChange={setRaceId}
                 options={races.map((r) => ({ value: r.race_id, label: <>{r.name}</>, sub: <span className="mono">{r.season} R{r.round}</span> }))} />
-        <Select label="My driver" value={driverId} onChange={setDriverId}
+        <Select label="Follow driver" value={driverId} onChange={setDriverId}
                 options={(entries?.entries ?? []).map((e) => ({
                   value: e.driver_id,
                   label: <><span style={{ width: 4, height: 16, borderRadius: 2, background: teamColor(e.team), display: "inline-block" }} />
@@ -132,7 +137,7 @@ export default function App() {
           {entries && <FavoriteChips fav={fav} entries={entries.entries} onOpen={() => setSheet("favorites")} />}
           <button className="btn lg" disabled={!raceId || !driverId}
                   onClick={() => run(api.setup(raceId!, driverId, session)).then(() => setEditSetup(false))}>
-            Load {SESSION_LABEL[session].toLowerCase()}
+            Watch the {SESSION_LABEL[session].toLowerCase()}
           </button>
         </div>
       </div>
@@ -169,36 +174,32 @@ export default function App() {
 
         {showSetup && setup}
 
-        {loaded && sim && (quali ? <QualiControl sim={sim} code={myCode} run={run} /> : <RaceControl sim={sim} code={myCode} run={run} sprint={sprint} />)}
+        {loaded && sim && (quali
+          ? <QualiControl sim={sim} code={myCode} run={run}><RaceControlStrip rc={sim.race_control} onAsk={askAbout} /></QualiControl>
+          : <RaceControl sim={sim} code={myCode} run={run} sprint={sprint}><RaceControlStrip rc={sim.race_control} onAsk={askAbout} /></RaceControl>)}
 
         {loaded && sim?.scorecard && (quali
-          ? <QualiScorecard sc={sim.scorecard} code={myCode} onRegrade={() => run(api.grade())} />
-          : <RaceScorecard sc={sim.scorecard} code={myCode} sprint={sprint} onRegrade={() => run(api.grade())} />)}
+          ? <QualiRecap sc={sim.scorecard} code={myCode} onRetry={() => run(api.grade())} />
+          : <RaceRecap sc={sim.scorecard} code={myCode} sprint={sprint} onRetry={() => run(api.grade())} />)}
 
         {loaded && pending && (quali
-          ? <QualiDecision d={pending} run={run} />
-          : <RaceDecision d={pending} lap={clock!.current_lap} sprint={sprint} onCall={(c, t) => run(api.call(c, t))} />)}
+          ? <QualiMoment d={pending} code={myCode} run={run} onAsk={askAbout} />
+          : <RaceMoment d={pending} code={myCode} sprint={sprint} run={run} onAsk={askAbout} />)}
 
         {loaded && sim && (
           <div className="layout">
             <div>{quali ? <QualiTower sim={sim} entries={entries?.entries ?? []} /> : sim.race && <RaceTower race={sim.race} />}</div>
             <div className="side">
-              {quali ? <QualiLog decisions={sim.decisions} code={myCode} /> : (
-                <DecisionLog decisions={sim.decisions} code={myCode} rows={(d) => ({
-                  when: `Lap ${d.lap + 1}`,
-                  strategy: callLabel(d.strategy_call, d.evidence?.tire_to_fit),
-                  you: callLabel(d.user_call, d.user_tire),
-                  real: realLabel(d, sprint),
-                  realTitle: d.actual?.detail,
-                })} />
-              )}
+              <MomentsLog decisions={sim.decisions} code={myCode} onAsk={askAbout}
+                          text={quali ? qualiText(myCode) : raceText(sprint, myCode)} />
             </div>
           </div>
         )}
       </main>
 
-      <AskFab onClick={() => setSheet("ask")} />
-      {sheet === "ask" && <AskSheet loaded={loaded} answers={answers} setAnswers={setAnswers} onClose={() => setSheet(null)} />}
+      <AskFab onClick={() => askAbout(null)} />
+      {sheet === "ask" && <AskSheet loaded={loaded} answers={answers} setAnswers={setAnswers} name={myName || "this driver"} kind={kind}
+                                    seed={askSeed} onSeedUsed={() => setAskSeed(null)} onClose={() => setSheet(null)} />}
       {sheet === "favorites" && entries && (
         <FavoritesSheet entries={entries.entries} fav={fav} onChange={setFav} onClose={() => setSheet(null)} saved={!!account} />
       )}

@@ -3,17 +3,49 @@
 **Live: https://pitwall-lq92.onrender.com** (Render free tier: the first load after 15 quiet
 minutes takes about 70 seconds while the service wakes; see [Deployment](#deployment)).
 
-An F1 strategy game on real 2025 data: replay a race, qualifying session or
-sprint as a driver's pit wall, make the calls at each decision point with an
-AI crew whose every number is checked against the data, and get graded
-against what the real team did.
+**Make sense of every race, as it unfolds.** Pit Wall is a companion for
+watching real 2025 F1 sessions, built to bring new people into the sport by
+making the strategy make sense. Follow a driver through a replayed race,
+qualifying session or sprint. At every key moment it pauses to explain, in
+plain words, what just happened, what the teams on the pit wall are weighing
+and why, and then what the real team did. Ask AI answers the "why" questions
+("Why isn't Hamilton pitting?", "Why did the car slow down?") from the data,
+including race control's flags, safety cars and penalties. Every number is
+checked against the data, and nothing from later in the session leaks
+through.
+
+## How it works for the viewer
+
+- **What's happening** (the explanation card) replaces the old decision card.
+  The same key-moment triggers pause the replay. The card shows what just
+  happened and what it means (the Companion, formerly the Race Engineer),
+  what the pit wall is weighing (Strategy's grounded tradeoff, plus which way
+  the data leans), the jargon used, with definitions from the rules file, and
+  "What HAM does next". That last part fills in once the next lap has been
+  played, so the no-spoiler rule holds. **Continue watching**
+  (`POST /api/sim/continue`) resumes the replay. Nobody makes calls and
+  nothing is scored.
+- **Race control** (`get_race_control`): OpenF1's messages (flags, safety car
+  and VSC, red flags, DRS, incidents, investigations, penalties, deleted lap
+  times) are baked into `race_control` and cut off at "now": the end of the
+  current lap, or the session clock in qualifying. A strip under the controls
+  says what the flags mean in plain words. Agents cite race control as facts
+  (`track_status`, `race_control`), and a safety car, red flag, yellow flag,
+  penalty or investigation in their own words is checked against it.
+- **Key moments** log: what the data leaned towards, what the driver really
+  did, and an **Ask why** button that sends the question to Ask AI.
+- **Strategy recap** at the flag (the Grader, retoned): the moments that
+  explain the session, what happened and why, and one thing to look for next
+  time. A learning summary, not a grade.
+- **Ask AI** is the floating button on every screen, with newcomer questions
+  first.
 
 Same architecture as hw5 (Campus Customs):
 
 | Layer | Folder | What it is |
 |---|---|---|
 | MCP server | `mcp_server/` | FastMCP server over stdio. Race tools that only answer for laps already run. |
-| Agent team | `backend/team.py` | PydanticAI Race Engineer, Strategy, Rival Watch, Grader and Historian on `gpt-6-luna` through Portkey. |
+| Agent team | `backend/team.py` | PydanticAI Companion (Race Engineer), Strategy, Rival Watch, Grader (recap) and Historian on `gpt-6-luna` through Portkey. |
 | Backend | `backend/` | FastAPI on port 8000: sim clock, decision points, API. Reads races only through MCP. |
 | Frontend | `frontend/` | React + Vite + TypeScript on port 5173: race, qualifying and sprint modes. The built app (`frontend/dist`) is committed and served by the backend in production. |
 | Data | `data/` | `races.db`, the read-only race database, built by `scripts/bake_race.py`; `knowledge/f1_rules.md`, the curated rules and history file. |
@@ -135,11 +167,12 @@ scorecards goes in a separate database, never this one.
 
 ## Race strategy mode
 
-Pick a driver, start the race, and the clock steps through it lap by lap.
-At a decision point the clock pauses, the Strategy agent recommends **box
-at the end of the next lap** or **stay out** with a one-line reason, and you
-make the call. Once that lap has run, the log shows what the real driver did.
-At the chequered flag the Grader scores the race.
+Pick a driver to follow, start the race, and the clock steps through it lap
+by lap. At a key moment the clock pauses and the card explains it: what just
+happened, the call the pit wall faces (**box at the end of the next lap** or
+**stay out**) and its tradeoff, and which way the data leans. **Continue
+watching** resumes. Once that lap has run, the log shows what the real driver
+did (and on what tire). At the chequered flag the Grader writes the recap.
 
 Default race: 2025 British GP (round 12), wet to dry.
 
@@ -147,7 +180,7 @@ Default race: 2025 British GP (round 12), wet to dry.
 behind boxes, when three or more cars box on one lap, when rain starts or
 stops, or when your tires reach a compound-specific age (soft 14, medium 20,
 hard 28, inter 18, wet 15 laps, then every 6). They are at least 3 laps apart
-(weather excepted) and never in the last 3 laps. "Ask strategy now" forces one.
+(weather excepted) and never in the last 3 laps. "Explain now" forces one.
 
 **The no-future rule** is enforced by the MCP tools, not the prompts. The
 backend is the only writer of the sim clock (`data/pitwall_user.db`); the
@@ -170,6 +203,7 @@ reaches the last lap.
 | `get_lap_records()` | Fastest lap so far; fastest stops (stationary and pit lane) among stops already completed. |
 | `get_championship(kind)` | Drivers' or constructors' standings going into this race. |
 | `get_season_summary(driver? \| team?)` | Standing going into this race, plus Grand Prix wins, podiums, best finish and retirements in earlier rounds. |
+| `get_race_control(last_laps?, last_minutes?, driver?)` | Race control's messages so far (any session): recent ones, the track status now (safety car / VSC / red / yellow sectors / DRS), what has happened at all this session, and who has been penalised or investigated. |
 | `lookup_rules(query)`, `get_rule(id)`, `list_rules()` | Entries from `data/knowledge/f1_rules.md`. |
 | `list_races()`, `get_entry_list(race_id)` | Pre-race info only, for picking a race and driver. |
 
@@ -187,27 +221,27 @@ gets the tools its job needs:
 | Historian | race tools, `get_rivals`, lap records, championship, season summary, rules file | current lap and earlier; season before this race; the rules file |
 
 
-- **Race Engineer** talks to you and coordinates. It has no data tools; it
-  delegates strategy questions and briefs you on the radio.
-- **Strategy** reads our car through the race tools, must consult Rival
-  Watch, and returns BOX / STAY_OUT, a one-line reason, a one-line rival
-  factor and the tire to fit. The UI shows Strategy's own grounded output,
-  not the Engineer's paraphrase.
+- **Race Engineer (the Companion)** explains each key moment to a newcomer:
+  what just happened and what it means, jargon explained as it comes up and
+  tagged by rules-file id (code attaches the definition). It has no data tools;
+  it delegates to Strategy and may only use Strategy's numbers or the trigger's.
+- **Strategy** reads our car through the race tools and race control, must
+  consult Rival Watch, and returns the call the pit wall faces (BOX /
+  STAY_OUT, the option the data leans towards), the tradeoff, a rival factor
+  and the tire the data points to. The UI shows Strategy's own grounded output.
 - **Rival Watch** reports who just pitted near us, who is in undercut range
   ahead or behind, who is closing, and who we'd rejoin behind. It may only
   name cars in `get_rivals`, and an undercut threat or chance must really be
   behind or ahead of us and in range.
-- **Grader** runs once the race ends. The backend computes the match rates
-  (you vs the real team, Strategy vs the real team, you vs Strategy) over
-  every decision point; the Grader reads the real result and writes the
-  headline, the biggest call of the race (which must be one of the decision
-  laps), and a line each on your calls and Strategy's. If it fails, **Grade
-  again** reruns it.
+- **Grader** runs once the race ends and writes the strategy recap: a
+  headline, two to four key moments (each must be one of the moment laps)
+  with what happened and why, and a takeaway. If it fails, **Try again**
+  reruns it.
 
 ## Qualifying mode
 
 Pick **Qualifying** in the session menu (default: 2025 Las Vegas GP, round
-22, a wet qualifying), choose a driver, **Load qualifying**, **Start
+22, a wet qualifying), choose a driver, **Watch the qualifying**, **Start
 qualifying**. Same clock, crew, tools and grounding as the race; what
 changes is the clock and the decision.
 
@@ -219,7 +253,7 @@ Eliminations are worked out from lap times at the moment the next segment
 starts. For Las Vegas they match the official result exactly. Deleted lap
 times aren't in the data, so in general this is the lap-time order.
 
-**Decisions.** With our car in the garage: **go out now** (on WET,
+**Key moments.** The pit wall's options with our car in the garage: **go out now** (on WET,
 INTERMEDIATE or a slick) or **wait**. On track: **continue** the lap or
 **abort** it. Decision points fire when a segment goes green, when rain
 starts or stops, when the first car of a segment goes out on a different
@@ -239,7 +273,7 @@ representative time (within 5% of their best so far) or was it abandoned.
 | Strategy | `get_quali_state`, `get_quali_driver`; must consult Rival Watch; returns GO_OUT (+ tire) / WAIT / CONTINUE / ABORT. A call that doesn't fit where our car is (e.g. GO_OUT while on track) is sent back. |
 | Rival Watch | `get_quali_rivals`: who's around us in the order, the cut line and our margin, who's on track on what tires, who improved in the last 3 minutes. |
 | Historian | the qualifying tools during qualifying (the race tools refuse), plus season and rules as before. |
-| Grader | `get_quali_final`, refused until the session is over: the official classification and our driver's best lap (time, tire, when). Scores your calls and Strategy's against the real team's, on the call and on the tire. |
+| Grader | `get_quali_final`, refused until the session is over: the official classification and our driver's best lap (time, tire, when). Writes the qualifying recap: the moments that explain where our driver ended up, tied to when and on what tire the best lap was set. |
 
 **Qualifying MCP tools** (all clamped to session time; the race tools refuse
 during qualifying so Saturday can't read Sunday): `get_quali_state`,
@@ -292,10 +326,9 @@ grounding. What changes:
   labeled that way everywhere: DEFEND if a car was within 1.0s behind and they
   kept the place, PUSH if they gained a place or took 0.5s+ out of the car
   ahead, otherwise MANAGE.
-- **Scorecard**: as in the race, your calls vs Strategy's vs the real driver's
-  on box-or-stay-out, plus tire matches when you both boxed, and defend /
-  push / manage against the inferred mode (shown separately, since it's
-  softer evidence). The Grader is told the same.
+- **Recap**: as in the race. What the real driver did is from the data on
+  box-or-stay-out and the tire; defend / push / manage is inferred from the
+  following laps, so the Grader is told to treat it as softer evidence.
 
 ## Ask AI (the Historian)
 
@@ -340,28 +373,29 @@ manifest, `viewport-fit=cover`, safe-area insets) and scales from a 375 px
 phone to a two-column laptop layout. Every control is custom: dropdowns,
 segmented controls, a toggle switch for the token meter, pill buttons.
 
-- **Landing:** "Pit Wall · Run the strategy. Beat the real team." with **Try
-  demo** (guest, nothing saved) or **Sign in / Create account**. Accounts are
+- **Landing:** "Pit Wall · Make sense of every race, as it unfolds." with **Start
+  watching** (guest, nothing saved) or **Sign in / Create account**. Accounts are
   local to the browser (`frontend/src/account.ts`): a display name and your
   favorites in `localStorage`, no password, nothing sent to the server.
 - **Session bar and setup:** session (race / qualifying / sprint), weekend and
   driver pickers, with your favorite team and driver as chips in the team color.
 - **Control bar:** lap counter (or Q-segment time left), weather and track-temp
-  badge, start / pause, speed, and "Ask strategy".
+  badge, start / pause, speed, "Explain now", and the race-control strip.
 - **Timing tower:** position, a team-color bar, driver code, interval and gap
   in tabular mono, the tire as a colored dot (soft red, medium yellow, hard
   white, inter green, wet blue) with its age, and IN / OUT pit status; your
   row is highlighted in the accent. Qualifying shows best laps, the tire each
   was set on, live status, and a drop-zone line.
-- **Decision card:** the trigger, Strategy's call as a big colored word (BOX,
-  STAY OUT, GO OUT, ...), the reason, the Engineer's line, the crew's working
-  (Rival Watch, evidence, cited facts, grounding retries, cleanups) folded
-  away, and large action buttons.
-- **Scorecard:** the Grader's headline, three tiles (you vs the real team,
-  Strategy vs the real team, you vs Strategy), the biggest call, and every
-  decision.
-- **Ask AI:** the round button bottom-right opens the Historian chat from
-  anywhere (a bottom sheet on phones, a side drawer on laptops).
+- **What's happening:** the trigger, "What just happened", "What the pit
+  wall is weighing" with the data's lean, "New words" chips, "What HAM does
+  next", "How we know" (cited facts, the cars around, the drafts the
+  fact-checker sent back) folded away, and **Continue watching**.
+- **Strategy recap:** the headline, the key moments with what happened and
+  why, the real result, and "Look for this next time".
+- **Ask AI:** the labelled pill bottom-right opens the Historian chat from
+  anywhere (a bottom sheet on phones, a side drawer on laptops), led by
+  newcomer questions; "Ask why" and "Why?" buttons around the app open it
+  with the question already asked.
 
 ### Favorites and theming
 

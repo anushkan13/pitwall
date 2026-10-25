@@ -92,3 +92,35 @@ The first round of the Formula 1 World Championship was the 1950 British Grand P
 ## history_most_titles: Most drivers' titles
 keywords: history, most titles, record, schumacher, hamilton, seven, champions
 The record for most Drivers' Championships is seven, shared by Michael Schumacher and Lewis Hamilton.
+
+## box: "Box" and pitting
+keywords: box, boxing, box box, pit, pitting, come in, stop
+"Box" is team-radio shorthand for "come into the pits". Boxing at the end of a lap means turning into the pit lane instead of starting the next lap, changing tires, and rejoining the race further back by the time the stop cost.
+
+## stint: Stints
+keywords: stint, first stint, long stint, short stint, run
+A stint is the stretch of laps a driver does on one set of tires, from one pit stop to the next. A one-stop race has two stints; a two-stop race has three.
+
+## tire_degradation: Tire wear and degradation
+keywords: degradation, deg, wear, worn tires, old tires, falling off, drop off, tire life
+Tires lose grip as they wear and overheat, so lap times usually creep up over a stint. That slowdown is called degradation. When a driver's lap times start getting noticeably slower, teams start thinking about a stop, because fresh tires will be quicker.
+
+## pit_window: The pit window
+keywords: pit window, when to pit, window opens, optimal lap
+The pit window is the range of laps in which a stop makes sense: late enough that the tires have done their job, early enough that worn tires aren't costing too much time, and timed so the driver rejoins in clear air rather than stuck behind slower cars.
+
+## track_position: Track position
+keywords: track position, clear air, traffic, dirty air, stuck behind, overtaking
+Track position means where a car is on the road, not on the timing screens. Being ahead on track is valuable because overtaking is hard: a following car loses downforce in the turbulent air behind another car. That is why teams sometimes keep a driver out on older tires rather than give up places by stopping.
+
+## out_lap: Out laps and in laps
+keywords: out lap, in lap, warm up, cold tires
+The in lap is the lap a driver drives into the pits; the out lap is the first lap after rejoining. On the out lap fresh tires are still cold, so they need a lap to reach full grip. In qualifying, the out lap warms the tires before the timed lap.
+
+## flags: Flags
+keywords: flag, flags, yellow flag, double yellow, green flag, chequered flag, marshal, slow down
+Marshals and race control use flags to tell drivers what is happening. A yellow flag means danger ahead in that part of the track: slow down and no overtaking there. A double yellow means be ready to stop. Green means the danger is cleared. In qualifying, a yellow flag can ruin the laps of anyone passing through that sector.
+
+## track_evolution: Track evolution
+keywords: track evolution, rubber, grip improving, track getting faster, drying track
+The track usually gets faster through a session as cars lay rubber on the racing line and, after rain, as a dry line appears. In qualifying, this is why drivers often wait to set their best lap late in a segment, when the track is at its quickest.

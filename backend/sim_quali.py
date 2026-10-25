@@ -242,6 +242,7 @@ async def _run_team(decision_id: int, trigger: str) -> None:
                       "rival_watch": result.rivals.model_dump() if result.rivals else None,
                       "tool_calls": result.tool_log, "grounding_rejections": result.rejections,
                       "grounding_cleanups": result.cleanups,
+                      "jargon": result.jargon,
                       "usage": result.usage})
     except Exception as exc:
         log.error("team error:\n%s", traceback.format_exc())
@@ -308,7 +309,7 @@ def _label(call: str | None, tire: str | None = None) -> str:
 
 
 def score(decisions: list[dict]) -> dict:
-    graded = [d for d in decisions if d["user_call"] and d["strategy_call"] and (d.get("actual") or {}).get("action")]
+    graded = [d for d in decisions if d["strategy_call"] and (d.get("actual") or {}).get("action")]
     n = len(graded)
 
     def rate(k: int, of: int | None = None) -> dict:
@@ -327,7 +328,8 @@ def score(decisions: list[dict]) -> dict:
         "your_tire_vs_real": rate(sum(d["user_tire"] == d["actual"]["tire"] for d in both_out), len(both_out)),
         "strategy_tire_vs_real": rate(sum(s_tire(d) == d["actual"]["tire"] for d in strat_out), len(strat_out)),
         "rows": [{"n": i + 1, "lap": i + 1, "when": d["actual"].get("when"), "trigger": d["trigger"],
-                  "strategy": _label(d["strategy_call"], s_tire(d)), "you": _label(d["user_call"], d["user_tire"]),
+                  "strategy": _label(d["strategy_call"], s_tire(d)), "reason": d["strategy_reason"],
+                  "you": _label(d["user_call"], d["user_tire"]),
                   "real": _label(real(d), d["actual"].get("tire")), "real_detail": d["actual"].get("detail"),
                   "strategy_ok": d["strategy_call"] == real(d), "you_ok": d["user_call"] == real(d)}
                  for i, d in enumerate(graded)],
@@ -348,10 +350,10 @@ async def _grade(race_id: int, driver_id: str) -> None:
         stats["real_best"] = final["my_best_lap"]
         if not stats["rows"]:
             user_db.save_scorecard(race_id, driver_id, "ready", stats=stats, session_kind="qualifying",
-                                   verdict={"headline": "No decision points were called, so there is nothing to grade."})
+                                   verdict={"headline": "No key moments came up for this driver, so there's nothing to recap.", "moments": []})
             return
-        table = "\n".join(f"#{r['n']} | {r['when']} | {r['trigger']} | Strategy: {r['strategy']} | You: {r['you']} | "
-                          f"Real team: {r['real']} ({r['real_detail']})" for r in stats["rows"])
+        table = "\n".join(f"#{r['n']} | {r['when']} | {r['trigger']} | The data leaned: {r['strategy']} "
+                          f"({r['reason']}) | Real team: {r['real']} ({r['real_detail']})" for r in stats["rows"])
         rates = "\n".join(f"{k}: {v['matched']}/{v['of']}" for k, v in stats.items()
                           if isinstance(v, dict) and "matched" in v)
         async with PitwallTeam("qualifying") as team:

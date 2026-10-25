@@ -1,14 +1,19 @@
-"""The Pitwall agent team.
+"""The Pit Wall agent team.
+
+Pit Wall is a companion for watching a real race: at each key moment the team
+explains what just happened, what the pit wall is weighing, and (once the lap
+has been played) what the real team did. Nobody makes calls.
+
 
 Same pattern as hw5: PydanticAI agents on gpt-6-luna through Portkey with
 reasoning effort "none", one MCP connection per team run, a delegate_to tool
 with a depth cap and a per-run delegation budget, and usage limits per agent.
 
-    Race Engineer  talks to the user and coordinates. No data tools; it
-                   delegates strategy questions to Strategy.
+    Race Engineer  (the Companion) explains each key moment to the user in
+                   plain language. No data tools; it delegates to Strategy.
     Strategy       reads our car through the MCP race tools, always consults
-                   Rival Watch, and returns BOX / STAY_OUT with a one-line
-                   reason.
+                   Rival Watch, and returns the call the pit wall faces and
+                   the tradeoff, with the option the data leans towards.
     Rival Watch    a specialist on the cars fighting ours: who just pitted,
                    who is in undercut range, who is closing, where we would
                    rejoin.
@@ -17,7 +22,7 @@ Strategy and Rival Watch cite numbers only as structured facts that code
 fills in and labels (grounding.py), and their wording is checked against
 the data's trends. The Engineer may only repeat numbers Strategy gave it.
     Grader         after the flag only: reads the real final result and
-                   writes the scorecard's verdict.
+                   writes the recap (key moments, what happened, why).
 
 Who may see what is enforced by the MCP tools (no future laps for anyone;
 get_final_result refuses until the race is over) and, on top of that, by
@@ -52,20 +57,20 @@ AgentName = Literal["engineer", "strategy", "rival_watch", "grader", "historian"
 
 # Tools per agent. The race tools refuse future laps on their own; this keeps
 # each agent to the reads its job needs.
-RACE_TOOLS = {"get_race_state", "get_driver_laps", "get_tire_info", "get_pit_log"}
-QUALI_TOOLS = {"get_quali_state", "get_quali_driver", "get_quali_rivals"}
+RACE_TOOLS = {"get_race_state", "get_driver_laps", "get_tire_info", "get_pit_log", "get_race_control"}
+QUALI_TOOLS = {"get_quali_state", "get_quali_driver", "get_quali_rivals", "get_race_control"}
 # Qualifying mode swaps these in; the agents and the checks are the same ones.
 QUALI_MODE_TOOLS: dict[str, set[str]] = {
-    "strategy": {"get_quali_state", "get_quali_driver"},
+    "strategy": {"get_quali_state", "get_quali_driver", "get_race_control"},
     "rival_watch": QUALI_TOOLS,
-    "grader": {"get_quali_final", "get_quali_state", "get_quali_driver"},
+    "grader": {"get_quali_final", "get_quali_state", "get_quali_driver", "get_race_control"},
 }
 QUALI_CALLS = {"garage": {"GO_OUT", "WAIT"}, "out lap": {"CONTINUE", "ABORT"}, "on a lap": {"CONTINUE", "ABORT"}}
 QUALI_TIRES = {"WET", "INTERMEDIATE", "SOFT", "MEDIUM", "HARD"}
 TOOLS: dict[str, set[str]] = {
     "strategy": RACE_TOOLS,
     "rival_watch": RACE_TOOLS | {"get_rivals"},
-    "grader": {"get_final_result", "get_race_state", "get_driver_laps", "get_pit_log"},
+    "grader": {"get_final_result", "get_race_state", "get_driver_laps", "get_pit_log", "get_race_control"},
     # Ask AI: the same clamped race tools, the season up to this race, and the rules file.
     # Never get_final_result.
     "historian": RACE_TOOLS | QUALI_TOOLS | {"get_rivals", "get_lap_records", "get_championship", "get_season_summary",
@@ -124,10 +129,11 @@ class RivalDraft(BaseModel):
 class StrategyDraft(BaseModel):
     call: Literal["BOX", "STAY_OUT"] = Field(description="Box at the end of the next lap, or stay out.")
     facts: list[FactRef] = Field(description="Every fact you cite. " + FACT_HELP)
-    reason_template: str = Field(description="Why. At most about 25 words. " + SENTENCE_HELP)
-    rival_template: str = Field(description="The rival situation (from Rival Watch) that shaped the call. "
+    reason_template: str = Field(description="The tradeoff the pit wall faces and which way the data leans, in plain "
+                                             "words. At most about 35 words. " + SENTENCE_HELP)
+    rival_template: str = Field(description="The rival situation (from Rival Watch) that weighs most, in plain words. "
                                             + SENTENCE_HELP)
-    tire_to_fit: str | None = Field(None, description="Compound to fit if boxing, e.g. MEDIUM.")
+    tire_to_fit: str | None = Field(None, description="Compound the data points to if the call leans BOX, e.g. MEDIUM.")
 
 
 class RivalNote(BaseModel):
@@ -193,8 +199,9 @@ class QualiStrategyDraft(BaseModel):
         description="In the garage: GO_OUT or WAIT. On track: CONTINUE the lap or ABORT it.")
     tire_to_fit: str | None = Field(None, description="With GO_OUT: WET, INTERMEDIATE, SOFT, MEDIUM or HARD.")
     facts: list[FactRef] = Field(description="Every fact you cite. Use the qualifying (q_) kinds.")
-    reason_template: str = Field(description="Why. At most about 25 words. " + SENTENCE_HELP)
-    rival_template: str = Field(description="The rival situation (from Rival Watch) that shaped the call. "
+    reason_template: str = Field(description="The tradeoff the team faces and which way the data leans, in plain "
+                                             "words. At most about 35 words. " + SENTENCE_HELP)
+    rival_template: str = Field(description="The rival situation (from Rival Watch) that weighs most, in plain words. "
                                             + SENTENCE_HELP)
 
 
@@ -216,15 +223,26 @@ class QualiCall(BaseModel):
 
 
 class EngineerReply(BaseModel):
-    message: str = Field(description="What you say to the user: 1-3 short sentences.")
+    message: str = Field(description="What just happened and what it means, for someone new to F1: 2-3 short "
+                                     "sentences, jargon explained in a few words as you use it.")
+    jargon: list[str] = Field(default_factory=list, description="Ids of the terms you used, from the list in your "
+                                                                "instructions (e.g. undercut, safety_car). At most 3.")
 
 
-class GraderVerdict(BaseModel):
-    headline: str = Field(description="One line on how the user's race went against the real team.")
-    biggest_call_lap: int = Field(description="The lap the biggest call was for (one of the decision laps).")
-    biggest_call: str = Field(description="One line on the biggest call of the race, with real numbers.")
-    your_calls: str = Field(description="One line on the user's calls overall.")
-    strategy_calls: str = Field(description="One line on the Strategy agent's calls overall.")
+class RecapMoment(BaseModel):
+    lap: int = Field(description="The moment's lap (race / sprint) or number (qualifying), from the moment table.")
+    title: str = Field(description="A short title, e.g. 'The safety car stop'.")
+    what_happened: str = Field(description="What the real team did, with real laps, positions, tires or times.")
+    why: str = Field(description="Why, in plain words: the reasoning or circumstance behind it, and what it was worth.")
+
+
+class RecapVerdict(BaseModel):
+    headline: str = Field(description="One line on how our driver's session went and the main reason why.")
+    moments: list[RecapMoment] = Field(description="The two to four moments that best explain the session, in order.")
+    takeaway: str = Field(description="One line on what this shows about F1 strategy, to look for next time.")
+
+
+GraderVerdict = RecapVerdict  # the Grader now writes the recap
 
 
 @dataclass
@@ -240,6 +258,7 @@ class TeamDeps:
     cleanups: list[dict] = field(default_factory=list)    # fixed in code (trims, repeated words)
     usage_log: list[dict] = field(default_factory=list)   # real token usage of every agent run in this answer
     decision_laps: set[int] = field(default_factory=set)  # grader only
+    trigger: str = ""                                     # the key moment being explained
     answers: list[HistorianAnswer] = field(default_factory=list)  # historian only
 
     def child(self, callee: AgentName) -> "TeamDeps":
@@ -247,7 +266,7 @@ class TeamDeps:
                         delegations_used=self.delegations_used, strategy_calls=self.strategy_calls,
                         rival_reports=self.rival_reports, tool_log=self.tool_log,
                         rejections=self.rejections, cleanups=self.cleanups, usage_log=self.usage_log,
-                        decision_laps=self.decision_laps)
+                        decision_laps=self.decision_laps, trigger=self.trigger)
 
 
 @dataclass
@@ -259,6 +278,7 @@ class TeamResult:
     rejections: list[dict]
     cleanups: list[dict]
     usage: dict | None = None
+    jargon: list[dict] = field(default_factory=list)  # [{id, title, text}] from the rules file
 
 
 class PitwallTeam:
@@ -493,7 +513,8 @@ class PitwallTeam:
         if not ctx.deps.strategy_calls:
             return out
         s = ctx.deps.strategy_calls[-1]
-        allowed = set(NUMBER.findall(s.reason + " " + s.rival_factor))
+        # numbers the Strategy call gave, and the trigger (which code wrote from the data)
+        allowed = set(NUMBER.findall(s.reason + " " + s.rival_factor + " " + ctx.deps.trigger))
         allowed |= ({str(s.lap), str(s.lap + 1)} if isinstance(s, StrategyCall) else {"1", "2", "3"})  # laps / Q1-Q3
         problems = [f'the number {n} is not in the strategy call; quote the strategy reason instead'
                     for n in NUMBER.findall(out.message) if n not in allowed]
@@ -505,11 +526,23 @@ class PitwallTeam:
             self._reject(ctx, out.model_dump(), problems)
         return out
 
-    async def _check_verdict(self, ctx: RunContext[TeamDeps], out: GraderVerdict) -> GraderVerdict:
-        if ctx.deps.decision_laps and out.biggest_call_lap not in ctx.deps.decision_laps:
-            raise ModelRetry(f"biggest_call_lap must be one of the decision laps: "
-                             f"{sorted(ctx.deps.decision_laps)}.")
+    async def _check_verdict(self, ctx: RunContext[TeamDeps], out: RecapVerdict) -> RecapVerdict:
+        bad = [m.lap for m in out.moments if ctx.deps.decision_laps and m.lap not in ctx.deps.decision_laps]
+        if bad:
+            raise ModelRetry(f"each moment's lap must be one of the moment laps: {sorted(ctx.deps.decision_laps)} "
+                             f"(not {bad}).")
+        if not out.moments:
+            raise ModelRetry("pick at least one moment")
         return out
+
+    async def _jargon(self, ids: list[str]) -> list[dict]:
+        """The definitions for the terms the Companion used, straight from the rules file."""
+        out = []
+        for rid in dict.fromkeys(i.strip().lower() for i in ids):
+            r = await self._direct("get_rule", {"rule_id": rid})
+            if not r.get("refused"):
+                out.append({"id": r["id"], "title": r["title"], "text": r["text"]})
+        return out[:3]
 
     # -- every agent run goes through here, so its real token usage is recorded --
 
@@ -566,34 +599,41 @@ class PitwallTeam:
     # -- entry points ---------------------------------------------------------
 
     async def decide(self, trigger: str, lap: int, when: str | None = None) -> TeamResult:
-        """A decision point: the Engineer gets the Strategy call and briefs the user.
+        """A key moment: the Companion gets the pit wall's call and tradeoff from
+        Strategy and explains the moment to the user.
 
         lap: laps completed (race). when: a session-time label (qualifying)."""
-        deps = TeamDeps()
+        deps = TeamDeps(trigger=trigger)
         if self.mode == "qualifying":
-            prompt = (f"Qualifying decision point ({when}): {trigger}. Get the strategy call for our driver: go out "
-                      "now or wait, and on which tire; or, if we're on track, continue or abort the lap. Then brief me.")
+            prompt = (f"Key moment in qualifying ({when}): {trigger}. Ask Strategy what the team is weighing for our "
+                      "driver: go out now or wait, and on which tire; or, if we're on track, continue or abort the "
+                      "lap, and which way the data leans. Then explain the moment to me.")
             if trigger.endswith("is about to go green"):
                 prompt += (f" {trigger.split()[0]} starts in a second, so the tools still show the break before it; "
                            "every car is in the garage.")
-            fallback = f"Qualifying, {when}: {trigger}. What's the call for our driver?"
+            fallback = (f"Qualifying, {when}: {trigger}. What is the team weighing for our driver, and which way "
+                        "does the data lean?")
         elif self.mode == "sprint":
-            prompt = (f"Sprint decision point at the end of lap {lap}: {trigger}. Get the strategy call for our "
-                      "driver for the next lap: box (and for which tire), or stay out and defend, push or manage "
-                      "the tires. Then brief me.")
-            fallback = f"Sprint, end of lap {lap}: {trigger}. Box (which tire), defend, push or manage?"
+            prompt = (f"Key moment in the sprint, end of lap {lap}: {trigger}. Ask Strategy what the pit wall is "
+                      "weighing for our driver for the next lap: box (and for which tire), or stay out and defend, "
+                      "push or manage the tires, and which way the data leans. Then explain the moment to me.")
+            fallback = (f"Sprint, end of lap {lap}: {trigger}. What is the pit wall weighing for our driver next lap, "
+                        "and which way does the data lean?")
         else:
-            prompt = (f"Decision point at the end of lap {lap}: {trigger}. "
-                      "Get the strategy call for our driver for the next lap, then brief me.")
-            fallback = f"Box or stay out at the end of lap {lap + 1}? Trigger: {trigger}."
+            prompt = (f"Key moment at the end of lap {lap}: {trigger}. Ask Strategy what the pit wall is weighing "
+                      "for our driver, box at the end of the next lap or stay out, and which way the data leans. "
+                      "Then explain the moment to me.")
+            fallback = (f"End of lap {lap}: {trigger}. Box at the end of lap {lap + 1} or stay out: what's the "
+                        "tradeoff, and which way does the data lean?")
         reply = await self._run("engineer", prompt, deps)
         if not deps.strategy_calls:
-            # The Engineer is told to delegate; if it didn't, ask Strategy directly
-            # so a decision point never ends without a grounded call.
+            # The Companion is told to delegate; if it didn't, ask Strategy directly
+            # so a key moment never ends without a grounded explanation.
             await self._run("strategy", fallback, deps.child("strategy"))
         return TeamResult(reply.output.message, deps.strategy_calls[-1],
                           deps.rival_reports[-1] if deps.rival_reports else None, deps.tool_log,
-                          deps.rejections, deps.cleanups, self._usage(deps))
+                          deps.rejections, deps.cleanups, self._usage(deps),
+                          jargon=await self._jargon(reply.output.jargon))
 
     async def chat(self, message: str) -> TeamResult:
         deps = TeamDeps()
@@ -620,18 +660,16 @@ class PitwallTeam:
     async def grade(self, decisions_table: str, stats: str, decision_laps: set[int]) -> tuple[GraderVerdict, list]:
         deps = TeamDeps(agent="grader", chain=("grader",), decision_laps=decision_laps)
         if self.mode == "qualifying":
-            prompt = ("Qualifying is over. Here are the decision points (# = decision number; use it as "
-                      f"biggest_call_lap):\n\n{decisions_table}\n\nMatch rates (already computed):\n{stats}\n\n"
-                      "Grade the session.")
+            prompt = ("Qualifying is over. Here are the key moments the app explained (# = moment number; use it "
+                      f"as each moment's lap):\n\n{decisions_table}\n\nWrite the recap.")
         elif self.mode == "sprint":
-            prompt = ("The sprint is over. Here are the decision points (lap = the lap the call was for). Whether "
-                      "the real driver boxed, and on what tire, is from the data; DEFEND / PUSH / MANAGE for the real "
-                      "driver is inferred from the following laps, so treat it as softer evidence.\n\n"
-                      f"{decisions_table}\n\nMatch rates (already computed):\n{stats}\n\nGrade the sprint.")
+            prompt = ("The sprint is over. Here are the key moments the app explained (lap = the lap the call was "
+                      "for). Whether the real driver boxed, and on what tire, is from the data; DEFEND / PUSH / MANAGE "
+                      "for the real driver is inferred from the following laps, so treat it as softer evidence.\n\n"
+                      f"{decisions_table}\n\nWrite the recap of the sprint.")
         else:
-            prompt = ("The race is over. Here are the decision points (lap = the lap the call was for):\n\n"
-                      f"{decisions_table}\n\nMatch rates (already computed):\n{stats}\n\n"
-                      "Grade the race.")
+            prompt = ("The race is over. Here are the key moments the app explained (lap = the lap the call was "
+                      f"for):\n\n{decisions_table}\n\nWrite the recap.")
         result = await self._run("grader", prompt, deps)
         return result.output, deps.tool_log, self._usage(deps)
 
