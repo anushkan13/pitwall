@@ -2,14 +2,15 @@ import { useEffect, useState } from "react";
 import { accounts, type Account } from "./account";
 import { api, type EntryList, type Session, type SimState } from "./api";
 import { AskFab, AskSheet, type AskEntry } from "./AskAI";
-import { applyAccent, FavoriteChips, FavoritesSheet, teamColor, type Fav } from "./Favorites";
+import { applyAccent, FavoriteChips, FavoritesSheet, type Fav } from "./Favorites";
 import { AccountSheet, Landing } from "./Landing";
 import { DriverPanel, PreviewCard } from "./Focus";
+import { BottomNav, LearnPage, RacesPage, StandingsPage, WeekendSheet, type Round, type Tab } from "./Pages";
 import { MomentsLog, RaceControlStrip } from "./Moment";
 import { QualiControl, QualiMoment, QualiRecap, QualiTower, qualiText } from "./Quali";
 import { RaceControl, RaceMoment, RaceRecap, RaceTower, raceText } from "./Race";
 import { TrackMap } from "./TrackMap";
-import { Icon, Seg, Select, Sheet, Switch } from "./ui";
+import { Icon, Sheet, Switch } from "./ui";
 
 const SESSION_LABEL: Record<Session, string> = { race: "Race", qualifying: "Qualifying", sprint: "Sprint" };
 const NO_FAV: Fav = { team: "", driver: "" };
@@ -23,15 +24,16 @@ export default function App() {
   const [races, setRaces] = useState<{ race_id: number; name: string; season: number; round: number }[]>([]);
   const [raceId, setRaceId] = useState<number | null>(null);
   const [session, setSession] = useState<Session>("race");
-  const [defaults, setDefaults] = useState<Record<Session, number> | null>(null);
   const [entries, setEntries] = useState<EntryList | null>(null);
   const [driverId, setDriverId] = useState("");
   const [sim, setSim] = useState<SimState | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [answers, setAnswers] = useState<AskEntry[]>([]);
   const [showTokens, setShowTokens] = useState(false);
-  const [sheet, setSheet] = useState<null | "ask" | "favorites" | "menu" | "signin" | "create">(null);
-  const [editSetup, setEditSetup] = useState(false);
+  const [sheet, setSheet] = useState<null | "ask" | "favorites" | "menu" | "signin" | "create" | "weekend">(null);
+  const [tab, setTab] = useState<Tab>("races");
+  const [rounds, setRounds] = useState<Round[] | null>(null);
+  const [weekend, setWeekend] = useState<Round | null>(null);  // the weekend sheet's round
   const [askSeed, setAskSeed] = useState<string | null>(null);
   const [spotlight, setSpotlight] = useState<string | null>(null);  // a car tapped in the order; null = the followed driver
   const askAbout = (q: string | null) => { setAskSeed(q); setSheet("ask"); };
@@ -45,6 +47,7 @@ export default function App() {
     setFavState(a?.favorites ?? NO_FAV);
     setMode("app");
     setSheet(null);
+    setTab("races");
   };
 
   // the theme is the followed driver's team while a session is loaded, else the favorite team
@@ -75,8 +78,8 @@ export default function App() {
       api.races().then((r) => {
         setError(null);
         setRaces(r.races);
-        setRaceId(r.default_race_id);
-        setDefaults({ race: r.default_race_id, qualifying: r.default_quali_race_id, sprint: r.default_sprint_race_id });
+        setRaceId((x) => x ?? r.default_race_id);
+        api.calendar().then((c) => setRounds(c.rounds)).catch(() => {});
       }).catch((e: Error) => {
         setError(`Waking the server… (${e.message}, retrying)`);
         timer = setTimeout(load, 2000);
@@ -124,55 +127,29 @@ export default function App() {
   const myCode = myEntry?.code ?? clock?.driver_id ?? "";
   const myName = myEntry?.name.split(" ").slice(-1)[0] ?? myCode;
   const loadedRace = races.find((r) => r.race_id === clock?.race_id);
-  const showSetup = !loaded || editSetup;
   const notStarted = loaded && !clock!.running && (quali ? clock!.session_time_utc === clock!.session_start_utc
                                                          : clock!.current_lap === 0);
+  const loadedRound = rounds?.find((r) => r.race_id === clock?.race_id) ?? null;
 
-  const setup = (
-    <section className="card">
-      <div className="card-head">
-        <h2>{loaded ? "Change session" : "Pick a session to watch"}</h2>
-        {loaded && <button className="icon-btn" onClick={() => setEditSetup(false)} aria-label="Close">{Icon.close(16)}</button>}
-      </div>
-      <div className="stack">
-        <Seg block value={session} onChange={(s) => { setSession(s); if (defaults) setRaceId(defaults[s]); }}
-             options={(["race", "qualifying", "sprint"] as Session[]).map((s) => ({ value: s, label: SESSION_LABEL[s] }))} />
-        <Select label="Weekend" value={raceId} onChange={setRaceId}
-                options={races.map((r) => ({ value: r.race_id, label: <>{r.name}</>, sub: <span className="mono">{r.season} R{r.round}</span> }))} />
-        <Select label="Follow driver" value={driverId} onChange={(id) => {
-                  setDriverId(id);
-                  // same session already playing: switch who we follow right now, keep the lap
-                  if (loaded && raceId === clock?.race_id && session === kind && id !== clock?.driver_id) run(api.follow(id));
-                }}
-                options={(entries?.entries ?? []).map((e) => ({
-                  value: e.driver_id,
-                  label: <><span style={{ width: 4, height: 16, borderRadius: 2, background: teamColor(e.team), display: "inline-block" }} />
-                    <b className="mono">{e.code}</b> {e.name}</>,
-                  sub: <span className="mono">{e.grid === 0 ? "PL" : `P${e.grid}`}</span>,
-                }))} />
-        <div className="spread">
-          {entries && <FavoriteChips fav={fav} entries={entries.entries} onOpen={() => setSheet("favorites")} />}
-          {loaded && raceId === clock?.race_id && session === kind ? (
-            <button className="btn lg ghost" onClick={() => { if (confirm("Start this session again from the beginning?")) run(api.setup(raceId!, driverId, session)).then(() => setEditSetup(false)); }}>
-              Restart from the start
-            </button>
-          ) : (
-            <button className="btn lg" disabled={!raceId || !driverId}
-                    onClick={() => run(api.setup(raceId!, driverId, session)).then(() => setEditSetup(false))}>
-              Watch the {SESSION_LABEL[session].toLowerCase()}
-            </button>
-          )}
-        </div>
-      </div>
-    </section>
-  );
+  /** Open a weekend: pick a session (the one playing, if it's this weekend) and a driver. */
+  const openWeekend = (r: Round) => {
+    const playing = loaded && r.race_id === clock?.race_id;
+    const pick = playing ? kind : (r.sessions.find((x) => x.kind === "race" && x.watchable)
+                                    ?? r.sessions.find((x) => x.watchable) ?? r.sessions[0])?.kind ?? "race";
+    setRaceId(r.race_id);
+    setSession(pick as Session);
+    setWeekend(r);
+    setSheet("weekend");
+  };
+  const sameAsLoaded = loaded && weekend?.race_id === clock?.race_id && session === kind;
+  const watch = () => run(api.setup(weekend!.race_id, driverId, session)).then(() => { setSheet(null); setTab("watch"); window.scrollTo(0, 0); });
 
   return (
     <div className="app">
       <header className={`topbar ${themeTeam ? "team" : ""}`}>
         <div className="wordmark"><span className="slash" />PIT WALL</div>
         {loaded && <span className="pill accent">{SESSION_LABEL[kind]}</span>}
-        {loaded && myCode && <button className="chip team follow-chip" onClick={() => setEditSetup(true)} title="Switch driver">
+        {loaded && myCode && <button className="chip team follow-chip" onClick={() => { if (loadedRound) openWeekend(loadedRound); }} title="Switch driver">
           <span className="dot" />Following <b>{myCode}</b>{followedTeam && <span className="hb-team"> · {followedTeam}</span>}</button>}
         <div className="grow" />
         <div className="row" style={{ gap: "0.4rem" }}>
@@ -184,36 +161,48 @@ export default function App() {
       <main className="main">
         {error && <div className="toast">{error}</div>}
 
-        {loaded && !showSetup && (
+        {tab === "races" && (
+          <RacesPage rounds={rounds} onOpen={openWeekend} onResume={() => setTab("watch")}
+                     watching={loaded && loadedRound ? { name: loadedRound.name,
+                       label: `${SESSION_LABEL[kind]} · following ${myCode} · ${quali ? (sim?.quali?.segment ?? "before the start") : `lap ${clock!.current_lap}/${clock!.total_laps}`}` } : null} />
+        )}
+        {tab === "learn" && <LearnPage onAsk={askAbout} />}
+        {tab === "standings" && <StandingsPage rounds={rounds} onOpen={openWeekend} />}
+
+        {tab === "watch" && !loaded && (
+          <section className="card"><p style={{ margin: 0 }}>Nothing playing yet.</p>
+            <button className="btn" style={{ marginTop: "0.7rem" }} onClick={() => setTab("races")}>Pick a race weekend</button></section>
+        )}
+
+        {tab === "watch" && loaded && (
           <section className="card" style={{ padding: "0.75rem 1rem" }}>
             <div className="spread">
-              <div style={{ minWidth: 0 }}>
+              <button className="icon-btn" onClick={() => setTab("races")} aria-label="Back to races" style={{ transform: "rotate(90deg)" }}>{Icon.chev(18)}</button>
+              <div style={{ minWidth: 0, flex: 1 }}>
                 <div className="eyebrow">{loadedRace ? `${loadedRace.season} · Round ${loadedRace.round}` : ""} · {SESSION_LABEL[kind]}</div>
                 <div style={{ fontWeight: 750, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{loadedRace?.name ?? "Session"}</div>
               </div>
-              <button className="btn sm ghost" onClick={() => setEditSetup(true)}>Change</button>
+              <button className="btn sm ghost" onClick={() => { if (loadedRound) openWeekend(loadedRound); }}>Change</button>
             </div>
             {entries && <div style={{ marginTop: "0.55rem" }}><FavoriteChips fav={fav} entries={entries.entries} onOpen={() => setSheet("favorites")} /></div>}
           </section>
         )}
 
-        {showSetup && setup}
-
-        {loaded && sim && (quali
+        {tab === "watch" && loaded && sim && (quali
           ? <QualiControl sim={sim} code={myCode} run={run}><RaceControlStrip rc={sim.race_control} onAsk={askAbout} /></QualiControl>
           : <RaceControl sim={sim} code={myCode} run={run} sprint={sprint}><RaceControlStrip rc={sim.race_control} onAsk={askAbout} /></RaceControl>)}
 
-        {loaded && sim?.scorecard && (quali
+        {tab === "watch" && loaded && sim?.scorecard && (quali
           ? <QualiRecap sc={sim.scorecard} code={myCode} onRetry={() => run(api.grade())} />
           : <RaceRecap sc={sim.scorecard} code={myCode} sprint={sprint} onRetry={() => run(api.grade())} />)}
 
-        {loaded && pending && (quali
+        {tab === "watch" && loaded && pending && (quali
           ? <QualiMoment d={pending} code={myCode} run={run} onAsk={askAbout} />
           : <RaceMoment d={pending} code={myCode} sprint={sprint} run={run} onAsk={askAbout} />)}
 
-        {loaded && sim && notStarted && !pending && <PreviewCard sim={sim} onAsk={askAbout} />}
+        {tab === "watch" && loaded && sim && notStarted && !pending && <PreviewCard sim={sim} onAsk={askAbout} />}
 
-        {loaded && sim && (
+        {tab === "watch" && loaded && sim && (
           <div className="layout">
             {!quali && sim.race && <div className="lay-map"><TrackMap race={sim.race} spotlight={spotlight} onPick={setSpotlight} /></div>}
             <div className="lay-tower">
@@ -230,7 +219,16 @@ export default function App() {
         )}
       </main>
 
+      <BottomNav tab={tab} onTab={(t) => { setTab(t); window.scrollTo(0, 0); }} watching={loaded} />
       <AskFab onClick={() => askAbout(null)} />
+      {sheet === "weekend" && weekend && (
+        <WeekendSheet round={weekend} session={session} onSession={setSession} entries={entries?.entries ?? []}
+                      driverId={driverId} sameAsLoaded={!!sameAsLoaded} onClose={() => { setSheet(null); if (sameAsLoaded) setTab("watch"); }}
+                      onDriver={(id) => { setDriverId(id); if (sameAsLoaded && id !== clock?.driver_id) run(api.follow(id)); }}
+                      onWatch={watch}
+                      onRestart={() => { if (confirm("Start this session again from the beginning?")) watch(); }}
+                      favorites={entries && <FavoriteChips fav={fav} entries={entries.entries} onOpen={() => setSheet("favorites")} />} />
+      )}
       {sheet === "ask" && <AskSheet loaded={loaded} answers={answers} setAnswers={setAnswers} name={myName || "this driver"} kind={kind}
                                     seed={askSeed} onSeedUsed={() => setAskSeed(null)} onClose={() => setSheet(null)} />}
       {sheet === "favorites" && entries && (

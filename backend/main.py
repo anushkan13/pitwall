@@ -323,6 +323,38 @@ async def state() -> dict:
             "scorecard": user_db.get_scorecard(clock["race_id"], clock["driver_id"], kind)}
 
 
+# --------------------------------------------------------------------------
+# Season reference and Learn: the Races, Standings and Learn pages
+# --------------------------------------------------------------------------
+
+
+@app.get("/api/season/calendar")
+async def season_calendar() -> dict:
+    return await mcp_client.call("get_season_calendar", {})
+
+
+@app.get("/api/season/standings")
+async def season_standings(after_round: int | None = None) -> dict:
+    return await mcp_client.call("get_season_standings", {} if after_round is None else {"after_round": after_round})
+
+
+@app.get("/api/season/podium/{race_id}")
+async def season_podium(race_id: int) -> dict:
+    """A weekend's podiums. The app only asks after the user taps "reveal result"."""
+    return await mcp_client.call("get_race_podium", {"race_id": race_id})
+
+
+@app.get("/api/learn")
+async def learn() -> dict:
+    """Every entry in the rules and history file, with its text (the Learn page)."""
+    entries = []
+    for e in await mcp_client.call("list_rules", {}):
+        r = await mcp_client.call("get_rule", {"rule_id": e["id"]})
+        if not r.get("refused"):
+            entries.append(r)
+    return {"entries": entries}
+
+
 @app.post("/api/sim/grade")
 async def grade() -> dict:
     """Grade the race again (e.g. after a grader error). Only after the flag."""

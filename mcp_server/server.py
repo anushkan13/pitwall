@@ -1119,6 +1119,83 @@ def get_session_preview() -> dict:
                      if kind == "sprint" else "Championship and form from the rounds before this weekend.")}
 
 
+# --------------------------------------------------------------------------
+# Season reference, for the app's Races and Standings pages only
+#
+# These aren't tied to the replay clock, so no agent is given them (each
+# agent's tools are an explicit allowlist in backend/team.py). The app shows
+# standings as season reference and keeps each race's result behind a tap.
+# --------------------------------------------------------------------------
+
+
+@mcp.tool
+def get_season_calendar(season: int = 2025) -> dict:
+    """Every round of the season: name, place, date, and which sessions can be watched. No results."""
+    rows = _q("SELECT race_id, round, name, circuit_name, locality, country, date, has_sprint FROM races "
+              "WHERE season = ? ORDER BY round", (season,))
+    sess = {}
+    for r in _q("""SELECT s.race_id, s.kind, s.start_utc,
+                          (SELECT COUNT(*) FROM laps l WHERE l.session_id = s.session_id) AS laps
+                   FROM sessions s JOIN races ra USING (race_id) WHERE ra.season = ?""", (season,)):
+        sess.setdefault(r["race_id"], {})[r["kind"]] = {"start_utc": r["start_utc"], "watchable": r["laps"] > 0}
+    order = ("qualifying", "sprint", "race")
+    return {"season": season, "rounds": [
+        {**dict(r), "has_sprint": bool(r["has_sprint"]),
+         "sessions": [{"kind": k, **sess[r["race_id"]][k]} for k in order if k in sess.get(r["race_id"], {})]}
+        for r in rows]}
+
+
+@mcp.tool
+def get_season_standings(season: int = 2025, after_round: int | None = None) -> dict:
+    """Drivers' and constructors' standings after a round (default: the last baked round),
+    summed from every Grand Prix and sprint result up to it."""
+    last = _q("SELECT MAX(round) AS r FROM races WHERE season = ?", (season,))[0]["r"] or 0
+    upto = last if after_round is None else max(0, min(int(after_round), last))
+    rows = _q("""SELECT r.driver_id, d.code, d.first_name || ' ' || d.last_name AS name, t.name AS team, t.team_id,
+                        s.kind, r.position_text, r.points, ra.round
+                 FROM results r JOIN sessions s USING (session_id) JOIN races ra ON ra.race_id = s.race_id
+                 JOIN drivers d USING (driver_id) JOIN teams t ON t.team_id = r.team_id
+                 WHERE ra.season = ? AND ra.round <= ? AND s.kind IN ('race', 'sprint')
+                 ORDER BY ra.round""", (season, upto))
+    drivers: dict[str, dict] = {}
+    teams: dict[str, dict] = {}
+    for r in rows:
+        d = drivers.setdefault(r["driver_id"], {"code": r["code"], "name": r["name"], "points": 0.0, "wins": 0,
+                                                "podiums": 0})
+        d["team"] = r["team"]  # their latest team
+        d["points"] += r["points"]
+        t = teams.setdefault(r["team_id"], {"team": r["team"], "points": 0.0, "wins": 0})
+        t["points"] += r["points"]
+        if r["kind"] == "race" and r["position_text"] in ("1", "2", "3"):
+            d["podiums"] += 1
+            if r["position_text"] == "1":
+                d["wins"] += 1
+                t["wins"] += 1
+    rank = lambda xs: [{"position": i + 1, **x} for i, x in enumerate(  # noqa: E731
+        sorted(xs, key=lambda x: (-x["points"], -x["wins"])))]
+    return {"season": season, "after_round": upto, "last_round": last,
+            "drivers": rank(drivers.values()), "constructors": rank(teams.values())}
+
+
+@mcp.tool
+def get_race_podium(race_id: int) -> dict:
+    """One weekend's podiums: the Grand Prix top three, and the sprint's if it had one."""
+    out = {"race_id": race_id}
+    for kind in ("race", "sprint"):
+        rows = _q("""SELECT r.position_text AS pos, d.code, d.first_name || ' ' || d.last_name AS name, t.name AS team
+                     FROM results r JOIN drivers d USING (driver_id) JOIN teams t USING (team_id)
+                     WHERE r.session_id = ? AND r.position_text IN ('1', '2', '3') ORDER BY r.position_order""",
+                  (_sid(race_id, kind),))
+        if rows:
+            out[kind] = [dict(r) for r in rows]
+    pole = _q("""SELECT d.code, d.first_name || ' ' || d.last_name AS name FROM qualifying_results q
+                 JOIN drivers d USING (driver_id) WHERE q.session_id = ? AND q.position = 1""",
+              (_sid(race_id, "qualifying"),))
+    if pole:
+        out["pole"] = dict(pole[0])
+    return out
+
+
 KNOWLEDGE_FILE = DATA_DIR / "knowledge" / "f1_rules.md"
 # Words too common in questions to say what a question is about.
 _FILLER = {"what", "whats", "who", "how", "does", "the", "this", "that", "race", "races", "f1", "formula",

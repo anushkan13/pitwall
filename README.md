@@ -16,6 +16,25 @@ through.
 
 ## How it works for the viewer
 
+**Three pages, one bottom nav** (Ask AI floats on all of them):
+
+- **Races** (home, after Start watching): the 24 weekends of 2025 as cards
+  showing the round, Grand Prix, place, date and its sessions (a session
+  with no timing data, like Azerbaijan qualifying, is struck through). Tap one
+  to open the weekend: pick a session and a driver, then watch. While a
+  session is playing, a "Now watching" card leads back to it.
+- **Learn**: every entry in `data/knowledge/f1_rules.md` (the same file Ask AI
+  answers rules questions from), grouped into Strategy, Tires, Flags and
+  safety, Rules and format, and history, searchable, each with "Ask AI about
+  this".
+- **Standings**: the drivers' and constructors' championships after any round
+  (default: the final standings), summed from every Grand Prix and sprint
+  result, and the calendar. Each weekend's podium and pole sit behind
+  "Reveal result", so nobody is spoiled by accident. The season-reference MCP
+  tools behind these pages (`get_season_calendar`, `get_season_standings`,
+  `get_race_podium`) aren't tied to the replay clock, so no agent is given
+  them; agents' tools are explicit allowlists in `backend/team.py`.
+
 - **What's happening** (the explanation card) replaces the old decision card.
   The same key-moment triggers pause the replay. The card shows what just
   happened and what it means (the Companion, formerly the Race Engineer),

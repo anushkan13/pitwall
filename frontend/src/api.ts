@@ -294,6 +294,11 @@ export const api = {
   preview: () => req<Preview>("/api/sim/preview"),
   previewRetry: () => req<Preview>("/api/sim/preview/retry", {}),
   grade: () => req<SimState>("/api/sim/grade", {}),
+  calendar: () => req<{ season: number; rounds: import("./Pages").Round[] }>("/api/season/calendar"),
+  standings: (after_round?: number | null) =>
+    req<import("./Pages").Standings>(`/api/season/standings${after_round ? `?after_round=${after_round}` : ""}`),
+  podium: (race_id: number) => req<import("./Pages").Podium>(`/api/season/podium/${race_id}`),
+  learn: () => req<{ entries: { id: string; title: string; text: string }[] }>("/api/learn"),
   askAI: (question: string) => req<AskAnswer>("/api/ask", { question }),
   chat: (message: string) => req<{ message: string }>("/api/engineer/chat", { message }),
 };

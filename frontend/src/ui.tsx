@@ -9,6 +9,8 @@ const svg = (path: ReactNode, size = 18) => (
 export const Icon = {
   chev: (s?: number) => svg(<path d="m6 9 6 6 6-6" />, s),
   close: (s?: number) => svg(<path d="M18 6 6 18M6 6l12 12" />, s),
+  book: (s?: number) => svg(<><path d="M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2z" /><path d="M4 21V5" /><path d="M9 7h6" /></>, s),
+  trophy: (s?: number) => svg(<><path d="M8 4h8v5a4 4 0 0 1-8 0z" /><path d="M8 6H5a3 3 0 0 0 3 4M16 6h3a3 3 0 0 1-3 4" /><path d="M12 13v4M8 20h8M9 17h6" /></>, s),
   play: (s?: number) => svg(<path d="M7 4v16l13-8z" fill="currentColor" />, s),
   pause: (s?: number) => svg(<><rect x="6" y="4" width="4" height="16" rx="1" fill="currentColor" /><rect x="14" y="4" width="4" height="16" rx="1" fill="currentColor" /></>, s),
   send: (s?: number) => svg(<path d="M5 12h14M13 6l6 6-6 6" />, s),
