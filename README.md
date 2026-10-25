@@ -63,7 +63,9 @@ through.
   age, the gaps ahead and behind, the last five lap times (safety-car, VSC
   and pit laps marked), a plain-language pace trend, and race control's
   notes about them. Code builds it from the clamped MCP tools, so no model
-  writes any of it. Tap any car in the order to spotlight it instead.
+  writes any of it. It opens in a simple view (position, tires, the gap ahead,
+  pace in words, race control's notes); "Show more" adds lap times, stops, the
+  car behind and the exact numbers, remembered per device. Tap any car in the order to spotlight it instead.
 - **Before the start** (`GET /api/sim/preview`): the grid with qualifying
   times, the championship going in and each driver's last three Grands Prix
   (`get_session_preview`, pre-session data only; a sprint gets the sprint
@@ -71,9 +73,13 @@ through.
   labelled as a prediction. It's the only place predictions are allowed: the
   previewer agent's text skips the no-prediction check, but its numbers still
   come from cited facts (`grid_slot`, `quali_result`, `recent_form`, the
-  championship kinds; at least three must be used). Standings or counts typed
-  as words, and claims that someone leads, won or retired, are checked against
-  the data.
+  championship kinds; at least three must be used, or as many as the session
+  has). A place or count written as words passes only when a fact cited in
+  the same sentence contains it, and claims that a driver leads, has won or
+  retired are checked against the data. The previewer gets six retries; if it
+  still can't ground a read (or there's nothing to ground one in, like the
+  first qualifying of the season), a shorter read is built in code from the
+  same data and labelled "Quick read from the data".
 - **Track map** (`frontend/src/TrackMap.tsx`, race and sprint): a stylized loop
   with a dot per car, colored by team and labelled with the driver code. The
   leader sits on the start/finish line and everyone else trails back by their

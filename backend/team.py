@@ -47,7 +47,7 @@ import re
 import mcp_client
 import user_db
 from grounding import FACT_HELP, Fact, FactRef, RaceView, check_future, ground
-from grounding_preview import PREVIEW_FACT_HELP, PreviewView, entrant_codes, mentions_unknown
+from grounding_preview import PREVIEW_FACT_HELP, PreviewView, available_facts, entrant_codes, mentions_unknown
 from grounding_quali import QualiView, load_view
 from llm import MODEL_NAME, MODEL_SETTINGS, build_model
 from pricing import LONG_CONTEXT_THRESHOLD, summarize
@@ -89,7 +89,7 @@ LIMITS = {
     "rival_watch": UsageLimits(request_limit=14, tool_calls_limit=10),
     "grader": UsageLimits(request_limit=10, tool_calls_limit=10),
     "historian": UsageLimits(request_limit=8, tool_calls_limit=8),
-    "previewer": UsageLimits(request_limit=10, tool_calls_limit=8),
+    "previewer": UsageLimits(request_limit=14, tool_calls_limit=8),
 }
 
 # Engineer -> Strategy -> Rival Watch is depth 2; nothing goes deeper.
@@ -98,6 +98,7 @@ MAX_DELEGATIONS = 4
 
 # Grounding failures send the answer back; give the agents room to fix them.
 GROUNDING_RETRIES = 4
+PREVIEW_RETRIES = 6
 
 NUMBER = re.compile(r"\d+(?:\.\d+)?")
 
@@ -356,7 +357,8 @@ class PitwallTeam:
             "rival_watch": make("rival_watch", RivalDraft, retries=GROUNDING_RETRIES),
             "grader": make("grader", GraderVerdict),
             "historian": make("historian", HistorianDraft, retries=GROUNDING_RETRIES),
-            "previewer": make("previewer", PreviewDraft, retries=GROUNDING_RETRIES),
+            # the read has more sentences to ground than any other answer, so more room to fix them
+            "previewer": make("previewer", PreviewDraft, retries=PREVIEW_RETRIES),
         }
         self.agents["previewer"].output_validator(self._ground_preview)
         self.agents["historian"].output_validator(self._ground_historian)
@@ -567,9 +569,11 @@ class PitwallTeam:
         rendered, facts, errs, cleanups = await ground(out.facts, templates, v, me,
                                                        limits={"headline": 25, "*": 45}, check_predictions=False)
         problems += errs
-        if len(facts) < 3:  # facts actually used in the text
-            problems.append("cite at least three facts (grid, qualifying, form or championship): the read's reasoning "
-                            "has to be tied to the data, not typed from memory")
+        # facts actually used in the text: at least three, or as many as the data has (round 1 has no form)
+        need = min(3, sum(1 for n in available_facts(v.preview).values() if n))
+        if len(facts) < need:
+            problems.append(f"cite at least {need} facts (grid, qualifying, form or championship): the read's "
+                            "reasoning has to be tied to the data, not typed from memory")
         if problems:
             self._reject(ctx, out.model_dump(), problems)
         ctx.deps.cleanups += [{"agent": "previewer", "note": n} for n in cleanups]

@@ -170,7 +170,7 @@ export type Preview = {
           drivers: PreviewDriver[]; note: string; refused?: boolean; reason?: string };
   read: { status: "writing" | "ready" | "error"; error: string | null;
           read: { headline: string; storylines: { title: string; text: string }[]; watch: { code: string; why: string }[];
-                  cited: Fact[]; usage?: Usage | null } | null } | null;
+                  cited: Fact[]; usage?: Usage | null; quick?: boolean } | null } | null;
 };
 
 export type RecapMoment = { lap: number; title: string; what_happened: string; why: string };

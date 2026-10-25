@@ -19,6 +19,7 @@ from statistics import median
 
 import mcp_client
 import user_db
+from grounding_preview import available_facts, quick_read
 
 log = logging.getLogger("pitwall.focus")
 
@@ -208,13 +209,23 @@ def ensure_preview(clock: dict, force: bool = False) -> None:
 async def _write(key: tuple) -> None:
     from team import PitwallTeam  # team imports nothing from here
     try:
-        async with PitwallTeam(key[2]) as team:
-            read = await team.preview()
+        data = await mcp_client.call("get_session_preview", {})
+        if not any(available_facts(data).values()):
+            # nothing to ground an AI read in (the first qualifying of the season): a short read from the entry list
+            user_db.save_preview(*key, "ready", read=quick_read(data))
+            return
+        try:
+            async with PitwallTeam(key[2]) as team:
+                read = (await team.preview()).model_dump()
+        except Exception:
+            # out of retries: a shorter read built from the same data, never nothing
+            log.warning("preview fell back to the quick read:\n%s", traceback.format_exc())
+            read = quick_read(data)
         clock = user_db.get_clock()
         if (clock["race_id"], clock["driver_id"], clock["session_kind"]) != key:
             user_db.save_preview(*key, "error", error="The session changed while the read was being written.")
             return
-        user_db.save_preview(*key, "ready", read=read.model_dump())
+        user_db.save_preview(*key, "ready", read=read)
     except Exception as exc:
         log.error("preview error:\n%s", traceback.format_exc())
         user_db.save_preview(*key, "error", error=f"{exc.__class__.__name__}: {exc}")

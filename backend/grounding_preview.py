@@ -26,8 +26,17 @@ NUMBER_WORDS = r"(?:two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|f
 # "top six", "two wins", "three podiums": counts written as words
 COUNTED = (rf"\btop {NUMBER_WORDS}\b|\b{NUMBER_WORDS}\s+(?:straight\s+|consecutive\s+)?"
            r"(?:points?|places?|positions?|wins?|victories|podiums?|poles?|races?|grands prix|retirements?)\b")
-LEADS = r"\bleads? the (?:drivers'? )?(?:championship|standings)\b|\bchampionship leader\b|\btitle leader\b"
-WON = r"\b(?:won|wins?|winning|victory|victories)\b"
+# a claim that a driver leads, not a reference to "the championship leader" (whoever that is)
+LEADS = (r"\bleads? the (?:drivers'? )?(?:championship|standings)\b"
+         r"|\b(?:is|as|remains|stays|arrives as)\s+(?:the\s+)?(?:championship|title|points)\s+leader\b")
+ORDINAL_N = {w: i + 1 for i, w in enumerate("first second third fourth fifth sixth seventh eighth ninth tenth eleventh "
+                                             "twelfth thirteenth fourteenth fifteenth sixteenth seventeenth eighteenth "
+                                             "nineteenth twentieth".split())}
+COUNT_N = {"two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10,
+           "eleven": 11, "twelve": 12, "fifteen": 15, "twenty": 20}
+# a claim that someone HAS won ("won last time", "his recent win"); "turn pole into a win" is a forecast
+WON = (r"\bwon\b|\b(?:recent|last|latest|previous|first|maiden)\s+(?:grand prix\s+)?(?:win|victory)\b"
+       r"|\b(?:a|his|her|their)\s+(?:win|victory)\s+(?:in|at|last|this season)\b|\bwinning (?:run|streak|form)\b")
 RETIRED = r"\b(?:retired|retirement|dnf|did not finish|crashed out)\b"
 
 PREVIEW_KINDS = {"grid_slot", "quali_result", "recent_form"}
@@ -70,9 +79,33 @@ class PreviewView(RaceView):
         problems: list[str] = []
         plain = PLACEHOLDER.sub(lambda m: f" {facts[m.group(1)].driver or ''} " if m.group(1) in facts else " ", template)
         low = plain.lower()
+        # the cited facts' own text, sentence by sentence: a place or count written as words is fine
+        # when a fact cited in that same sentence contains it ("{ver_form} shows ... a second place")
+        sentences = [(mm.start(), mm.end()) for mm in re.finditer(r"[^.;!?]+[.;!?]?", template)]
+
+        def backed(at: int, word: str) -> bool:
+            for a, b in sentences:
+                seg = template[a:b]
+                seg_plain = PLACEHOLDER.sub(lambda m: f" {facts[m.group(1)].driver or ''} " if m.group(1) in facts else " ", seg)
+                if word in seg_plain.lower():
+                    texts = " ".join(facts[k].text for k in PLACEHOLDER.findall(seg) if k in facts)
+                    n = ORDINAL_N.get(word.split()[-1]) or next((v for k, v in COUNT_N.items() if re.search(rf"\b{k}\b", word)), None)
+                    if n is None:
+                        return False
+                    if word.split()[-1] in ORDINAL_N:
+                        return bool(re.search(rf"\bP{n}\b", texts))
+                    if re.search(r"\bwins?\b|victor", word):
+                        return texts.count("P1") >= n or bool(re.search(rf"\({n} wins?\)", texts))
+                    if re.search(r"podium", word):
+                        return len(re.findall(r"\bP[123]\b", texts)) >= n
+                    return bool(re.search(rf"\b{n}\b", texts))
+            return False
+
         for m in list(re.finditer(ORDINAL, low)) + list(re.finditer(COUNTED, low)):
             if re.search(r"\b(?:last|past|previous|recent)\s+$", low[:m.start()]):
                 continue  # "his last three races": the form window, not a claim
+            if backed(m.start(), m.group(0)):
+                continue
             problems.append(f'{label} types a standing or a count as words ("{m.group(0)}"); cite it with a fact '
                             "placeholder (champ_position, grid_slot, quali_result or recent_form)")
         mentions = sorted([(m.start(), c) for c in entrant_codes(self) for m in re.finditer(rf"\b{c}\b", plain)]
@@ -136,9 +169,9 @@ class PreviewView(RaceView):
             if not q:
                 raise Unresolvable(f"{ref.key}: no Grand Prix qualifying result before this session"
                                    + (" (at a sprint weekend it comes after the sprint)" if session == "sprint" else ""))
-            out = f", out in {q['out_in']}" if q.get("out_in") else ""
-            return fact(f"{code} qualified P{q['position']} with a {q['best']} in {q['best_in']}{out}", q["position"],
-                        [(rf"\b{c}\s+qualified", f"P{q['position']} with a {q['best']} in {q['best_in']}{out}")])
+            out = f", out in {q['out_in']}" if q.get("out_in") and q.get("best") else ""
+            rest = f"P{q['position']} with a {q['best']} in {q['best_in']}{out}" if q.get("best") else f"P{q['position']}"
+            return fact(f"{code} qualified {rest}", q["position"], [(rf"\b{c}\s+qualified", rest)])
         if k == "recent_form":
             races = d.get("last_races") or []
             if not races:
@@ -157,3 +190,61 @@ def mentions_unknown(text: str, v: PreviewView) -> list[str]:
     """Three-letter codes in the agent's own words must be entrants."""
     codes = entrant_codes(v)
     return sorted({m for m in re.findall(r"\b[A-Z]{3}\b", text) if m not in codes and m not in {"DRS", "FIA", "DNF"}})
+
+
+def available_facts(preview: dict) -> dict[str, int]:
+    """How many drivers each pre-session fact kind can be cited for."""
+    ds = preview.get("drivers", [])
+    return {"grid_slot": sum(1 for d in ds if d.get("grid") or d.get("pit_lane_start")),
+            "quali_result": sum(1 for d in ds if d.get("qualifying")),
+            "champ_position": sum(1 for d in ds if d.get("championship")),
+            "recent_form": sum(1 for d in ds if d.get("last_races"))}
+
+
+def quick_read(preview: dict) -> dict:
+    """A short read built in code from the pre-session data, for when the AI's read can't be grounded
+    (or there's nothing for it to work with, like the first qualifying of the season). Facts only, no forecast."""
+    ds = preview.get("drivers", [])
+    me = next((d for d in ds if d.get("is_my_driver")), None)
+    session = preview.get("session")
+    on_grid = sorted((d for d in ds if d.get("grid")), key=lambda d: d["grid"])
+    leader = next((d for d in ds if (d.get("championship") or {}).get("position") == 1), None)
+    form = lambda d: ", ".join(r["finish"] for r in d["last_races"])  # noqa: E731
+    stories, watch = [], []
+    if on_grid:
+        front = on_grid[:2]
+        stories.append({"title": "The front row", "text": " and ".join(f"{d['code']} starts from P{d['grid']}" for d in front)
+                        + ". Track position is valuable, so the start and the first stops are the moments to watch."})
+    if leader:
+        c = leader["championship"]
+        stories.append({"title": "The championship", "text": f"{leader['code']} leads the drivers' championship on "
+                        f"{c['points']:g} points going into this weekend."})
+    if me:
+        bits = []
+        if me.get("pit_lane_start"):
+            bits.append(f"{me['code']} starts from the pit lane")
+        elif me.get("grid"):
+            bits.append(f"{me['code']} starts from P{me['grid']}")
+        if me.get("qualifying"):
+            q = me["qualifying"]
+            bits.append(f"qualified P{q['position']}" + (f" with a {q['best']} in {q['best_in']}" if q.get("best") else ""))
+        if me.get("championship") and me["championship"].get("position"):
+            bits.append(f"P{me['championship']['position']} in the championship going in")
+        if me.get("last_races"):
+            bits.append(f"last three Grands Prix: {form(me)} (most recent first)")
+        text = (", ".join(bits) + ".") if bits else (
+            f"{me['code']} lines up for {'qualifying' if session == 'qualifying' else 'the start'}: "
+            + ("the first session of the season, so there's no form to go on yet." if not ds or not any(d.get("last_races") for d in ds)
+               else "watch how they get on."))
+        stories.append({"title": f"Your driver, {me['code']}", "text": text[0].upper() + text[1:]})
+        watch.append({"code": me["code"], "why": "The driver you're following."})
+    for d in on_grid[:2]:
+        if not me or d["code"] != me["code"]:
+            watch.append({"code": d["code"], "why": f"Starts from P{d['grid']}, at the front."})
+    if leader and all(w["code"] != leader["code"] for w in watch):
+        watch.append({"code": leader["code"], "why": "Leads the championship going in."})
+    first = not any(d.get("last_races") for d in ds) and not leader
+    headline = ("The season starts here: no form or championship to go on yet, so everyone starts level." if first
+                else f"{on_grid[0]['code']} starts from pole: can anyone take it from them?" if on_grid
+                else f"Who sets the pace in {'qualifying' if session == 'qualifying' else 'this session'}?")
+    return {"headline": headline, "storylines": stories, "watch": watch[:3], "cited": [], "quick": True}

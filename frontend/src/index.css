@@ -730,3 +730,4 @@ html, body, #root { background: var(--bg); }
   .narrow-only { display: none; }
   .layout { grid-template-areas: "tower side"; grid-template-rows: auto; }
 }
+.dp-more { display: block; margin-top: 0.6rem; }
