@@ -19,11 +19,22 @@ export const teamColor = (team?: string | null) => (team && TEAM_ACCENT[team]?.c
 
 export type Fav = { team: string; driver: string };
 
+/** a + (b - a) * t, on hex colors: the near-black team shade for the browser's own chrome */
+function mix(a: string, b: string, t: number): string {
+  const n = (h: string) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
+  const [x, y] = [n(a), n(b)];
+  return "#" + x.map((v, i) => Math.round(v + (y[i] - v) * t).toString(16).padStart(2, "0")).join("");
+}
+
+/** The whole app takes on the team: the accent, and --team, which tints every surface (index.css).
+ *  No team: F1 red accent on a neutral dark base. */
 export function applyAccent(team: string) {
-  const a = TEAM_ACCENT[team] ?? DEFAULT_ACCENT;
-  document.documentElement.style.setProperty("--accent", a.color);
-  document.documentElement.style.setProperty("--accent-text", a.text);
-  document.querySelector('meta[name="theme-color"]')?.setAttribute("content", "#07080a");
+  const a = TEAM_ACCENT[team];
+  const root = document.documentElement.style;
+  root.setProperty("--accent", (a ?? DEFAULT_ACCENT).color);
+  root.setProperty("--accent-text", (a ?? DEFAULT_ACCENT).text);
+  if (a) root.setProperty("--team", a.color); else root.removeProperty("--team");
+  document.querySelector('meta[name="theme-color"]')?.setAttribute("content", a ? mix("#050506", a.color, 0.55) : "#07080a");
 }
 
 /** Favorite team and driver as chips in the team color. */

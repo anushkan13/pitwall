@@ -113,7 +113,7 @@ a { color: var(--accent); }
 .btn:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
 .btn:disabled { opacity: 0.38; cursor: not-allowed; transform: none; filter: none; }
 .btn.ghost { background: var(--card-3); color: var(--text); }
-.btn.ghost:hover { background: #2a2f37; filter: none; }
+.btn.ghost:hover { background: var(--card-3); filter: brightness(1.15); }
 .btn.outline { background: transparent; color: var(--text); box-shadow: inset 0 0 0 1px var(--line); }
 .btn.outline:hover { box-shadow: inset 0 0 0 1px var(--muted); filter: none; }
 .btn.lg { min-height: 52px; font-size: 1rem; padding: 0 1.4rem; }
@@ -126,7 +126,7 @@ a { color: var(--accent); }
   appearance: none; border: 0; background: var(--card-3); color: var(--text); width: 38px; height: 38px; border-radius: 50%;
   display: inline-grid; place-items: center; cursor: pointer;
 }
-.icon-btn:hover { background: #2a2f37; }
+.icon-btn:hover { background: var(--card-3); filter: brightness(1.2); }
 
 /* ---------- inputs ---------- */
 
@@ -221,7 +221,7 @@ button.chip:hover { filter: brightness(1.15); }
   gap: 0 0.5rem; padding: 0 0.75rem;
 }
 .tower-head { min-height: 32px; font-size: 0.66rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--dim); border-bottom: 1px solid var(--line); }
-.trow { min-height: 42px; border-bottom: 1px solid #1a1d23; font-size: 0.88rem; }
+.trow { min-height: 42px; border-bottom: 1px solid var(--line-soft); font-size: 0.88rem; }
 .trow:last-child { border-bottom: 0; }
 .trow .pos { font-family: var(--mono); font-weight: 700; text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; }
 .trow .bar { width: 4px; height: 22px; border-radius: 2px; background: var(--tc, #555); }
@@ -287,7 +287,7 @@ code.k { font-family: var(--mono); font-size: 0.72rem; color: var(--muted); back
 /* ---------- decision log ---------- */
 
 .log { display: grid; }
-.log-item { padding: 0.65rem 0.85rem; border-bottom: 1px solid #1a1d23; display: grid; gap: 0.35rem; }
+.log-item { padding: 0.65rem 0.85rem; border-bottom: 1px solid var(--line-soft); display: grid; gap: 0.35rem; }
 .log-item:last-child { border-bottom: 0; }
 .log-item .when { font-family: var(--mono); font-size: 0.75rem; color: var(--muted); }
 .calls { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.35rem; }
@@ -378,7 +378,7 @@ code.k { font-family: var(--mono); font-size: 0.72rem; color: var(--muted); back
 .token-meter, .token-cell { display: none; }
 body.show-tokens .token-meter { display: block; }
 body.show-tokens .token-cell { display: block; }
-.token-meter { font-family: var(--mono); font-size: 0.74rem; color: #b8bec7; background: #0b0d10; border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: 8px; padding: 0.45rem 0.6rem; margin-top: 0.6rem; }
+.token-meter { font-family: var(--mono); font-size: 0.74rem; color: #b8bec7; background: var(--bg); border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: 8px; padding: 0.45rem 0.6rem; margin-top: 0.6rem; }
 .token-meter summary { cursor: pointer; list-style: none; }
 .token-meter summary::-webkit-details-marker { display: none; }
 .token-meter table { border-collapse: collapse; margin-top: 0.4rem; width: 100%; }
@@ -490,7 +490,7 @@ hr.sep { border: 0; border-top: 1px solid var(--line); margin: 0.2rem 0; }
 .watch { list-style: none; margin: 0.35rem 0 0; padding: 0; display: grid; gap: 0.35rem; }
 .watch li { border-left: 3px solid var(--tc); padding-left: 0.55rem; }
 .pv-table { display: grid; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
-.pv-row { display: grid; grid-template-columns: 2.6rem minmax(0, 1fr) 5.4rem minmax(0, 6.5rem); gap: 0.4rem; align-items: center; padding: 0.38rem 0.6rem; border-bottom: 1px solid #1a1d23; font-size: 0.86rem; }
+.pv-row { display: grid; grid-template-columns: 2.6rem minmax(0, 1fr) 5.4rem minmax(0, 6.5rem); gap: 0.4rem; align-items: center; padding: 0.38rem 0.6rem; border-bottom: 1px solid var(--line-soft); font-size: 0.86rem; }
 .pv-row:last-child { border-bottom: 0; }
 .pv-row.head { font-size: 0.6rem; font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase; color: var(--dim); }
 .pv-row.mine { background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 40%, transparent), transparent); box-shadow: inset 3px 0 0 var(--accent); }
@@ -518,8 +518,8 @@ hr.sep { border: 0; border-top: 1px solid var(--line); margin: 0.2rem 0; }
 /* ---------- track map ---------- */
 .trackmap { background: radial-gradient(80% 90% at 50% 45%, color-mix(in srgb, var(--accent) 7%, var(--card)), var(--card)); }
 .tm-svg { display: block; width: 100%; height: auto; padding: 0.2rem 0.4rem 0; overflow: visible; touch-action: manipulation; }
-.tm-kerb { fill: none; stroke: #2a2f37; stroke-width: 15; stroke-linejoin: round; }
-.tm-road { fill: none; stroke: #15181d; stroke-width: 11; stroke-linejoin: round; }
+.tm-kerb { fill: none; stroke: var(--line); stroke-width: 15; stroke-linejoin: round; }
+.tm-road { fill: none; stroke: var(--bg); stroke-width: 11; stroke-linejoin: round; }
 .tm-sf rect { fill: #fff; }
 .tm-sf text { fill: var(--dim); font: 700 7px var(--sans); letter-spacing: 0.12em; }
 .tm-battle { fill: none; stroke: var(--warn); stroke-width: 5; stroke-linecap: round; opacity: 0.75; }
@@ -530,7 +530,7 @@ hr.sep { border: 0; border-top: 1px solid var(--line); margin: 0.2rem 0; }
 .tm-dot { transition: cx 0.6s ease, cy 0.6s ease; }
 .tm-ring { fill: none; stroke: var(--accent); stroke-width: 3; filter: drop-shadow(0 0 4px var(--accent)); }
 .tm-spot { fill: none; stroke-width: 2; stroke-dasharray: 3 2; }
-.tm-label { fill: #e8ebef; font: 800 11.5px var(--sans); letter-spacing: 0.02em; paint-order: stroke; stroke: #07080a; stroke-width: 3px; stroke-linejoin: round; cursor: pointer; }
+.tm-label { fill: #e8ebef; font: 800 11.5px var(--sans); letter-spacing: 0.02em; paint-order: stroke; stroke: var(--bg); stroke-width: 3px; stroke-linejoin: round; cursor: pointer; }
 .tm-car.mine .tm-label { fill: #fff; font-size: 13.5px; }
 .tm-pit { fill: var(--info); font-size: 9px; }
 .tm-car.pit .tm-label { fill: #b9c6d6; }
@@ -543,3 +543,88 @@ hr.sep { border: 0; border-top: 1px solid var(--line); margin: 0.2rem 0; }
   .lay-map { grid-area: map; } .lay-tower { grid-area: tower; } .layout > .side { grid-area: side; align-self: start; }
   .layout:not(:has(.lay-map)) { grid-template-areas: "tower side"; }
 }
+
+/* ======================================================================
+   Team identity. --team (set from the followed driver's team, else the
+   favorite) tints every surface: the background is a near-black shade of
+   the team color, cards and lines a step lighter. Text stays near-white,
+   and secondary text is lifted, so contrast holds on every shade.
+   No team: --tint falls back to a neutral grey.
+   ====================================================================== */
+:root {
+  --tint: var(--team, #7d838d);
+  --bg: color-mix(in srgb, var(--tint) 10%, #040405);
+  --card: color-mix(in srgb, var(--tint) 12%, #0b0c0e);
+  --card-2: color-mix(in srgb, var(--tint) 15%, #111215);
+  --card-3: color-mix(in srgb, var(--tint) 19%, #17181c);
+  --line: color-mix(in srgb, var(--tint) 30%, #1e2025);
+  --line-soft: color-mix(in srgb, var(--tint) 18%, #15161a);
+  --muted: color-mix(in srgb, var(--tint) 12%, #aeb4be);
+  --dim: color-mix(in srgb, var(--tint) 14%, #8a909b);
+  --glow: color-mix(in srgb, var(--accent) 30%, transparent);
+}
+html, body, #root { background: var(--bg); }
+
+/* depth: a team glow from the top and the screen edges, behind everything */
+.app {
+  background:
+    radial-gradient(1200px 520px at 50% -180px, color-mix(in srgb, var(--accent) 30%, transparent), transparent 70%),
+    radial-gradient(500px 900px at -160px 40%, color-mix(in srgb, var(--accent) 14%, transparent), transparent 70%),
+    radial-gradient(500px 900px at calc(100% + 160px) 60%, color-mix(in srgb, var(--accent) 14%, transparent), transparent 70%),
+    var(--bg);
+  background-attachment: fixed;
+}
+
+/* the branded header: a solid band of team color, text in the team's own contrast color */
+.topbar {
+  background:
+    linear-gradient(100deg, color-mix(in srgb, var(--accent) 100%, black 0%) 0%, color-mix(in srgb, var(--accent) 82%, black) 55%,
+                    color-mix(in srgb, var(--accent) 62%, black) 100%);
+  color: var(--accent-text);
+  border-bottom: 0;
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--accent-text) 14%, transparent) inset, 0 12px 34px -14px var(--accent);
+  backdrop-filter: none; -webkit-backdrop-filter: none;
+}
+.topbar::after { /* a thin livery stripe under the band */
+  content: ""; position: absolute; left: 0; right: 0; bottom: -3px; height: 3px;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--accent-text) 55%, var(--accent)), transparent 70%);
+  opacity: 0.55;
+}
+.topbar .wordmark { color: var(--accent-text); }
+.topbar .wordmark .slash { background: var(--accent-text); }
+.topbar .pill.accent { background: color-mix(in srgb, black 22%, transparent); color: var(--accent-text); }
+.topbar .chip, .topbar .follow-chip {
+  background: color-mix(in srgb, black 20%, transparent); color: var(--accent-text);
+  border-color: color-mix(in srgb, var(--accent-text) 28%, transparent); box-shadow: none;
+}
+.topbar .chip:hover { background: color-mix(in srgb, black 32%, transparent); }
+.topbar .follow-chip .dot { background: var(--accent-text); }
+.topbar .follow-chip b { font-weight: 900; }
+.topbar .hb-team { font-weight: 600; opacity: 0.85; }
+.topbar .switch { color: var(--accent-text); }
+.topbar .switch .track { background: color-mix(in srgb, black 25%, transparent); border-color: color-mix(in srgb, var(--accent-text) 30%, transparent); }
+.topbar .switch[aria-checked="true"] .track { background: var(--accent-text); }
+.topbar .switch[aria-checked="true"] .knob { background: var(--accent); }
+@media (max-width: 559px) { .topbar .hb-team { display: none; } }
+
+/* cards: a team-color top edge and a tinted head; the driver panel and moment cards go further */
+.card {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 8%, var(--card)) 0, var(--card) 72px);
+  border: 1px solid var(--line);
+  border-top: 2px solid color-mix(in srgb, var(--accent) 70%, var(--line));
+  box-shadow: 0 18px 40px -30px var(--glow);
+}
+.card.flush > .spread:first-child, .card.flush > .tower-head { background: color-mix(in srgb, var(--accent) 10%, transparent); }
+.card.accent { border-top-width: 3px; background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 16%, var(--card)) 0, var(--card) 140px); }
+.driver-panel { border-top: 3px solid var(--tc); }
+.subcard, .weigh, .dp-stat, .callbox, .jargon-def { background: var(--card-2); border-color: var(--line); }
+.trow.mine { background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 55%, transparent), color-mix(in srgb, var(--accent) 14%, transparent)); }
+.trow.mine .team { color: color-mix(in srgb, var(--accent-text) 70%, white); }
+.btn.ghost { background: var(--card-3); }
+.toast { color: #ffe1e1; }
+
+/* landing: the same world */
+.landing { background:
+    radial-gradient(120% 70% at 85% -10%, color-mix(in srgb, var(--accent) 42%, transparent), transparent 60%),
+    radial-gradient(90% 60% at -10% 110%, color-mix(in srgb, var(--accent) 16%, transparent), transparent 60%),
+    var(--bg); }

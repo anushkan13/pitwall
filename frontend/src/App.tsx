@@ -169,11 +169,11 @@ export default function App() {
 
   return (
     <div className="app">
-      <header className="topbar">
+      <header className={`topbar ${themeTeam ? "team" : ""}`}>
         <div className="wordmark"><span className="slash" />PIT WALL</div>
         {loaded && <span className="pill accent">{SESSION_LABEL[kind]}</span>}
         {loaded && myCode && <button className="chip team follow-chip" onClick={() => setEditSetup(true)} title="Switch driver">
-          <span className="dot" />Following {myCode}</button>}
+          <span className="dot" />Following <b>{myCode}</b>{followedTeam && <span className="hb-team"> · {followedTeam}</span>}</button>}
         <div className="grow" />
         <div className="row" style={{ gap: "0.4rem" }}>
           <span className="desktop-only"><Switch on={showTokens} onChange={setShowTokens} label="Tokens" /></span>

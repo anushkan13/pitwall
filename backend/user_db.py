@@ -174,11 +174,11 @@ def decisions_for(race_id: int, driver_id: str, session_kind: str = "race") -> l
 
 
 def clear_decisions(race_id: int, driver_id: str, session_kind: str = "race") -> None:
+    """A fresh watch of a session: every driver's moments and recaps for it go, since any driver
+    can be followed during it (the driver argument is kept for the callers)."""
     with connect() as conn:
-        conn.execute("DELETE FROM decisions WHERE race_id = ? AND driver_id = ? AND session_kind = ?",
-                     (race_id, driver_id, session_kind))
-        conn.execute("DELETE FROM scorecards WHERE race_id = ? AND driver_id = ? AND session_kind = ?",
-                     (race_id, driver_id, session_kind))
+        conn.execute("DELETE FROM decisions WHERE race_id = ? AND session_kind = ?", (race_id, session_kind))
+        conn.execute("DELETE FROM scorecards WHERE race_id = ? AND session_kind = ?", (race_id, session_kind))
 
 
 def save_scorecard(race_id: int, driver_id: str, status: str, stats: dict | None = None,
@@ -237,3 +237,7 @@ def clear_moments_from(race_id: int, driver_id: str, session_kind: str, lap: int
                          (race_id, driver_id, session_kind, lap))
         conn.execute("DELETE FROM scorecards WHERE race_id = ? AND driver_id = ? AND session_kind = ?",
                      (race_id, driver_id, session_kind))
+        # anything of theirs still open from before is closed, so it can't pop up out of time
+        conn.execute("""UPDATE decisions SET user_call = 'WATCHED', status = CASE WHEN status = 'thinking'
+                        THEN status ELSE 'decided' END WHERE race_id = ? AND driver_id = ? AND session_kind = ?
+                        AND user_call IS NULL""", (race_id, driver_id, session_kind))

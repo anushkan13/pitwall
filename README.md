@@ -69,9 +69,15 @@ through.
 - **Following** (`POST /api/sim/follow`): switch drivers mid-session without
   restarting. The label, the theme, the highlighted row, the driver panel and
   the key moments all switch right away.
-- **Team theming**: the followed driver's team color runs through the header,
-  the edges, the followed row and panel, buttons and highlights, on the same
-  dark base.
+- **Team theming**: the whole app takes on the followed driver's team (or the
+  favorite team before a session). `--team` tints every surface, so the
+  background is a near-black shade of the team color (red-black for Ferrari,
+  papaya-tinted charcoal for McLaren) and cards and lines are a step lighter.
+  The header is a solid team-color band with the app name and "Following HAM ·
+  Ferrari" in the team's contrast color. Card tops, glows behind the cards and
+  at the screen edges, buttons, the followed row, the progress bar and Ask AI
+  are all in the team color. Text contrast is at least 4.5:1 (WCAG AA) on
+  every surface for Ferrari and McLaren. No team: neutral dark with F1 red.
 
 Same architecture as hw5 (Campus Customs):
 
