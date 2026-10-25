@@ -57,7 +57,7 @@ export function RaceControl({ sim, code, run, sprint, children }: {
 
 /* ---------- timing tower ---------- */
 
-export function RaceTower({ race }: { race: RaceState }) {
+export function RaceTower({ race, onPick, spotlight }: { race: RaceState; onPick?: (code: string) => void; spotlight?: string | null }) {
   return (
     <section className="card flush tower">
       <div className="spread" style={{ padding: "0.85rem 0.85rem 0.6rem" }}>
@@ -70,9 +70,10 @@ export function RaceTower({ race }: { race: RaceState }) {
         <span>Tire</span><span className="hide-sm" style={{ textAlign: "right" }}>Stp</span><span />
       </div>
       {race.cars.map((c) => (
-        <div key={c.driver_id} className={`trow race ${c.is_my_driver ? "mine" : ""}`}>
+        <div key={c.driver_id} className={`trow race ${c.is_my_driver ? "mine" : ""} ${spotlight === c.code ? "spot" : ""} ${onPick ? "pick" : ""}`}
+             style={{ ["--tc" as string]: teamColor(c.team) }} onClick={() => onPick?.(c.code)}>
           <span className="pos">{c.position}</span>
-          <span className="bar" style={{ ["--tc" as string]: teamColor(c.team) }} />
+          <span className="bar" />
           <span className="code">{c.code}</span>
           <span className="team hide-sm">{c.team}</span>
           <span className="t">{c.position === 1 && race.phase !== "grid" ? <span className="dim">Leader</span> : fmtGap(c.gap_ahead_s)}</span>

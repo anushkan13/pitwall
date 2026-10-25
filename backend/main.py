@@ -30,6 +30,7 @@ BACKEND_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(BACKEND_DIR))
 
 import llm  # noqa: E402
+import focus
 import mcp_client  # noqa: E402
 import sim  # noqa: E402
 import sim_quali  # noqa: E402
@@ -143,14 +144,71 @@ async def setup(body: SetupBody) -> dict:
         raise HTTPException(400, f"{body.driver_id} is not entered in this race.")
     if body.session == "qualifying":
         try:
-            await sim_quali.setup(race_id, body.driver_id)
+            clock = await sim_quali.setup(race_id, body.driver_id)
         except ValueError as exc:
             raise HTTPException(404, str(exc))
+        focus.ensure_preview(clock)
         return await state()
     user_db.clear_decisions(race_id, body.driver_id, body.session)
-    user_db.set_clock(race_id=race_id, driver_id=body.driver_id, current_lap=0, session_kind=body.session,
-                      total_laps=info["scheduled_laps"], running=0)
+    clock = user_db.set_clock(race_id=race_id, driver_id=body.driver_id, current_lap=0, session_kind=body.session,
+                              total_laps=info["scheduled_laps"], running=0)
+    focus.ensure_preview(clock)
     return await state()
+
+
+class FollowBody(BaseModel):
+    driver_id: str = Field(min_length=1, max_length=64)
+
+
+@app.post("/api/sim/follow")
+async def follow(body: FollowBody) -> dict:
+    """Follow a different driver from right now, without restarting the session."""
+    clock = user_db.get_clock()
+    if clock["race_id"] is None:
+        raise HTTPException(400, "Load a session first.")
+    kind = clock["session_kind"]
+    info = await mcp_client.call("get_entry_list", {"race_id": clock["race_id"],
+                                                    "session": "sprint" if kind == "sprint" else "race"})
+    if body.driver_id not in {e["driver_id"] for e in info.get("entries", [])}:
+        raise HTTPException(400, f"{body.driver_id} is not entered in this session.")
+    if body.driver_id == clock["driver_id"]:
+        return await state()
+    # the old driver's open moment is closed, so it never pops back up
+    pending = sim.pending_decision(clock)
+    if pending:
+        user_db.update_decision(pending["id"], user_call="WATCHED", status="decided" if pending["status"] != "thinking"
+                                else "thinking")
+    user_db.clear_moments_from(clock["race_id"], body.driver_id, kind, clock["current_lap"], clock.get("session_time_utc"))
+    clock = user_db.set_clock(driver_id=body.driver_id)
+    started = (clock["current_lap"] > 0 if kind != "qualifying"
+               else clock.get("session_time_utc") != clock.get("session_start_utc"))
+    if not started:
+        focus.ensure_preview(clock)
+    return await state()
+
+
+@app.get("/api/sim/driver")
+async def driver(code: str | None = None) -> dict:
+    """The driver-focus panel: the followed driver by default, or any car by code. Current lap only."""
+    return await focus.driver_focus(code.strip().upper() if code else None)
+
+
+@app.get("/api/sim/preview")
+async def preview() -> dict:
+    """Before the start: the grid, qualifying, form and championship, plus the AI's pre-session read."""
+    clock = user_db.get_clock()
+    if clock["race_id"] is None:
+        raise HTTPException(400, "Load a session first.")
+    return await focus.preview(clock)
+
+
+@app.post("/api/sim/preview/retry")
+async def preview_retry() -> dict:
+    clock = user_db.get_clock()
+    if clock["race_id"] is None:
+        raise HTTPException(400, "Load a session first.")
+    focus.ensure_preview(clock, force=True)
+    return await focus.preview(clock)
 
 
 @app.post("/api/sim/start")

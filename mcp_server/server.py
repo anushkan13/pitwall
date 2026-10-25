@@ -972,6 +972,23 @@ def _track_status(msgs: list[sqlite3.Row]) -> dict:
             "yellow_sectors": [{"sector": s, "flag": f} for s, f in yellows]}
 
 
+def _neutralised_laps(rows: list[sqlite3.Row], now_lap: int) -> list[int]:
+    """Laps run at least partly under a safety car, VSC or red flag (their lap times aren't race pace)."""
+    laps, start = set(), None
+    for m in rows:
+        text, lap = m["message"].upper(), m["lap"]
+        if lap is None:
+            continue
+        if (m["category"] == "SafetyCar" and "DEPLOYED" in text) or m["flag"] == "RED":
+            start = lap if start is None else start
+        elif start is not None and m["flag"] in ("CLEAR", "GREEN") and m["scope"] == "Track":
+            laps |= set(range(start, lap + 1))
+            start = None
+    if start is not None:  # still out: every lap from then up to now
+        laps |= set(range(start, now_lap + 1))
+    return sorted(laps)
+
+
 @mcp.tool
 @_guarded
 def get_race_control(last_laps: int = 3, last_minutes: int = 6, driver: str | None = None) -> dict:
@@ -1033,9 +1050,73 @@ def get_race_control(last_laps: int = 3, last_minutes: int = 6, driver: str | No
                       "noted_or_investigated": sorted({c for m in rows if re.search(
                           r"\bNOTED\b|INVESTIGAT", m["message"].upper()) for c in RC_CODES.findall(m["message"])})},
            "messages_so_far": len(shown)}
+    if not quali:
+        out["neutralised_laps"] = _neutralised_laps(rows, clock["current_lap"])
     if driver:
         out["driver_messages"] = {"driver": driver.strip().upper(), "messages": about(driver.strip().upper())}
     return out
+
+
+# --------------------------------------------------------------------------
+# Pre-session preview: only what was known before the session started
+# --------------------------------------------------------------------------
+
+
+def _ms_lap(ms: int | None) -> str | None:
+    return _laptime(ms) if ms else None
+
+
+@mcp.tool
+@_guarded
+def get_session_preview() -> dict:
+    """What was known before this session started: the grid and how each driver
+    qualified (for the Grand Prix), the championship going into the weekend, and
+    each driver's recent form (their last three Grands Prix). Nothing from this
+    session itself. For a sprint, the sprint grid only: Grand Prix qualifying
+    comes after the sprint."""
+    clock = _clock(None)
+    race_id, kind = clock["race_id"], clock["session_kind"]
+    race = _q("SELECT name, season, round, circuit_name FROM races WHERE race_id = ?", (race_id,))
+    entries = _q("""SELECT r.driver_id, d.code, d.first_name || ' ' || d.last_name AS name, t.name AS team, r.grid
+                    FROM results r JOIN drivers d USING (driver_id) JOIN teams t USING (team_id)
+                    WHERE r.session_id = ?""", (_sid(race_id, "sprint" if kind == "sprint" else "race"),))
+    quali = {}
+    if kind == "race":  # Grand Prix qualifying happened before the race
+        for q in _q("SELECT driver_id, position, q1_ms, q2_ms, q3_ms FROM qualifying_results WHERE session_id = ?",
+                    (_sid(race_id, "qualifying"),)):
+            seg = "Q3" if q["q3_ms"] else "Q2" if q["q2_ms"] else "Q1"
+            quali[q["driver_id"]] = {"position": q["position"], "out_in": None if seg == "Q3" else seg,
+                                     "best": _ms_lap(q["q3_ms"] or q["q2_ms"] or q["q1_ms"]), "best_in": seg}
+    standings = {s["driver_id"]: dict(s) for s in _q(
+        "SELECT driver_id, position, points, wins FROM driver_standings_before WHERE race_id = ?", (race_id,))}
+    season, rnd = race_id // 100, race_id % 100
+    form: dict[str, list] = {}
+    for f in _q("""SELECT r.driver_id, ra.round, ra.name, r.position_text, r.grid FROM results r
+                   JOIN sessions s USING (session_id) JOIN races ra ON ra.race_id = s.race_id
+                   WHERE s.kind = 'race' AND ra.season = ? AND ra.round < ? ORDER BY ra.round DESC""", (season, rnd)):
+        lst = form.setdefault(f["driver_id"], [])
+        if len(lst) < 3:
+            pos = f["position_text"]
+            lst.append({"round": f["round"], "race": f["name"],
+                        "finish": f"P{pos}" if pos and pos.isdigit() else {"R": "DNF", "D": "DSQ", "W": "DNS"}.get(pos, pos)})
+    drivers = []
+    for e in entries:
+        d = e["driver_id"]
+        drivers.append({"code": e["code"], "name": e["name"], "team": e["team"],
+                        "grid": None if kind == "qualifying" else (e["grid"] or None),
+                        "pit_lane_start": kind != "qualifying" and e["grid"] == 0,
+                        "qualifying": quali.get(d),
+                        "championship": standings.get(d) and {k: standings[d][k] for k in ("position", "points", "wins")},
+                        "last_races": form.get(d, []),
+                        "is_my_driver": d == clock["driver_id"]})
+    key = (lambda x: (x["grid"] or 99)) if kind != "qualifying" else (lambda x: (x["championship"] or {}).get("position") or 99)
+    drivers.sort(key=key)
+    r = race[0] if race else {}
+    return {"session": kind, "race": r["name"] if race else None, "round": rnd, "circuit": r["circuit_name"] if race else None,
+            "after_round": rnd - 1, "drivers": drivers,
+            "note": ("Grid from qualifying; championship and form from the rounds before this weekend."
+                     if kind == "race" else "Sprint grid; championship and form from the rounds before this weekend."
+                     if kind == "sprint" else "Championship and form from the rounds before this weekend.")}
 
 
 KNOWLEDGE_FILE = DATA_DIR / "knowledge" / "f1_rules.md"

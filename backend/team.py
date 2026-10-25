@@ -47,13 +47,14 @@ import re
 import mcp_client
 import user_db
 from grounding import FACT_HELP, Fact, FactRef, RaceView, check_future, ground
+from grounding_preview import PREVIEW_FACT_HELP, PreviewView, entrant_codes, mentions_unknown
 from grounding_quali import QualiView, load_view
 from llm import MODEL_NAME, MODEL_SETTINGS, build_model
 from pricing import LONG_CONTEXT_THRESHOLD, summarize
 
 PROMPT_DIR = Path(__file__).resolve().parent / "prompts"
 
-AgentName = Literal["engineer", "strategy", "rival_watch", "grader", "historian"]
+AgentName = Literal["engineer", "strategy", "rival_watch", "grader", "historian", "previewer"]
 
 # Tools per agent. The race tools refuse future laps on their own; this keeps
 # each agent to the reads its job needs.
@@ -75,6 +76,8 @@ TOOLS: dict[str, set[str]] = {
     # Never get_final_result.
     "historian": RACE_TOOLS | QUALI_TOOLS | {"get_rivals", "get_lap_records", "get_championship", "get_season_summary",
                                "lookup_rules", "list_rules", "get_rule"},
+    # the pre-session read: pre-session data only, never the session itself
+    "previewer": {"get_session_preview", "get_championship", "get_season_summary", "lookup_rules", "get_rule"},
 }
 # Who may delegate to whom.
 CAN_ASK: dict[str, set[str]] = {"engineer": {"strategy"}, "strategy": {"rival_watch"}}
@@ -86,6 +89,7 @@ LIMITS = {
     "rival_watch": UsageLimits(request_limit=14, tool_calls_limit=10),
     "grader": UsageLimits(request_limit=10, tool_calls_limit=10),
     "historian": UsageLimits(request_limit=8, tool_calls_limit=8),
+    "previewer": UsageLimits(request_limit=10, tool_calls_limit=8),
 }
 
 # Engineer -> Strategy -> Rival Watch is depth 2; nothing goes deeper.
@@ -183,6 +187,34 @@ class HistorianDraft(BaseModel):
                                                          "from the data or the rules file. No numbers.")
 
 
+class StorylineDraft(BaseModel):
+    title: str = Field(description="A few words, e.g. 'Pole sitter under pressure'.")
+    text_template: str = Field(description="One or two sentences with {key} placeholders. " + SENTENCE_HELP)
+
+
+class WatchDraft(BaseModel):
+    code: str = Field(description="Three-letter code of an entrant.")
+    why_template: str = Field(description="Why to watch them, one sentence with {key} placeholders. " + SENTENCE_HELP)
+
+
+class PreviewDraft(BaseModel):
+    facts: list[FactRef] = Field(description="Every fact you cite. " + PREVIEW_FACT_HELP)
+    headline_template: str = Field(description="One line: the big question of this session. " + SENTENCE_HELP)
+    storylines: list[StorylineDraft] = Field(description="Two or three storylines to follow, with your forecast.")
+    watch: list[WatchDraft] = Field(description="Two or three drivers to watch, the followed driver included.")
+
+
+class PreviewRead(BaseModel):
+    headline: str
+    storylines: list[dict]   # [{title, text}]
+    watch: list[dict]        # [{code, why}]
+    cited: list[Fact]
+    tool_calls: list[dict] = []
+    rejections: list[dict] = []
+    cleanups: list[dict] = []
+    usage: dict | None = None
+
+
 class HistorianAnswer(BaseModel):
     kind: str
     answer: str
@@ -260,6 +292,7 @@ class TeamDeps:
     decision_laps: set[int] = field(default_factory=set)  # grader only
     trigger: str = ""                                     # the key moment being explained
     answers: list[HistorianAnswer] = field(default_factory=list)  # historian only
+    previews: list[PreviewRead] = field(default_factory=list)     # previewer only
 
     def child(self, callee: AgentName) -> "TeamDeps":
         return TeamDeps(agent=callee, depth=self.depth + 1, chain=self.chain + (callee,),
@@ -323,7 +356,9 @@ class PitwallTeam:
             "rival_watch": make("rival_watch", RivalDraft, retries=GROUNDING_RETRIES),
             "grader": make("grader", GraderVerdict),
             "historian": make("historian", HistorianDraft, retries=GROUNDING_RETRIES),
+            "previewer": make("previewer", PreviewDraft, retries=GROUNDING_RETRIES),
         }
+        self.agents["previewer"].output_validator(self._ground_preview)
         self.agents["historian"].output_validator(self._ground_historian)
         self.agents["strategy"].output_validator(
             self._ground_strategy_quali if mode == "qualifying" else self._ground_strategy)
@@ -508,6 +543,43 @@ class PitwallTeam:
         ctx.deps.answers.append(HistorianAnswer(kind=out.kind, answer=rendered["answer"], cited=facts, rules=rules))
         return out
 
+    async def _ground_preview(self, ctx: RunContext[TeamDeps], out: PreviewDraft) -> PreviewDraft:
+        """The pre-session read: every number from pre-session facts, every driver an entrant.
+        It's the one place a prediction is allowed (check_predictions=False); it's labelled as one."""
+        v = await PreviewView.load(self._direct)
+        if v.preview.get("refused"):
+            self._reject(ctx, out.model_dump(), [v.preview["reason"]])
+        me = next((d["code"] for d in v.preview.get("drivers", []) if d.get("is_my_driver")), None)
+        problems = []
+        codes = entrant_codes(v)
+        templates = {"headline": out.headline_template}
+        for i, st in enumerate(out.storylines):
+            templates[f"storyline {i + 1}"] = st.text_template
+        for w in out.watch:
+            if w.code.upper() not in codes:
+                problems.append(f"{w.code} is not entered in this session")
+            templates[f"note for {w.code.upper()}"] = w.why_template
+        if me and me not in {w.code.upper() for w in out.watch}:
+            problems.append(f"include the followed driver, {me}, in watch")
+        for label, t in templates.items():
+            if unknown := mentions_unknown(t, v):
+                problems.append(f"{label} names {', '.join(unknown)}, who isn't entered in this session")
+        rendered, facts, errs, cleanups = await ground(out.facts, templates, v, me,
+                                                       limits={"headline": 25, "*": 45}, check_predictions=False)
+        problems += errs
+        if len(facts) < 3:  # facts actually used in the text
+            problems.append("cite at least three facts (grid, qualifying, form or championship): the read's reasoning "
+                            "has to be tied to the data, not typed from memory")
+        if problems:
+            self._reject(ctx, out.model_dump(), problems)
+        ctx.deps.cleanups += [{"agent": "previewer", "note": n} for n in cleanups]
+        ctx.deps.previews.append(PreviewRead(
+            headline=rendered["headline"],
+            storylines=[{"title": st.title, "text": rendered[f"storyline {i + 1}"]} for i, st in enumerate(out.storylines)],
+            watch=[{"code": w.code.upper(), "why": rendered[f"note for {w.code.upper()}"]} for w in out.watch],
+            cited=facts))
+        return out
+
     async def _check_engineer(self, ctx: RunContext[TeamDeps], out: EngineerReply) -> EngineerReply:
         """The Engineer may only repeat numbers Strategy gave it, and its trend words are checked too."""
         if not ctx.deps.strategy_calls:
@@ -656,6 +728,14 @@ class PitwallTeam:
         return answer.model_copy(update={"tool_calls": deps.tool_log, "rejections": deps.rejections,
                                          "usage": self._usage(deps),
                                          "cleanups": deps.cleanups})
+
+    async def preview(self) -> PreviewRead:
+        """The AI's pre-session read: a labelled prediction from pre-session data only."""
+        deps = TeamDeps(agent="previewer", chain=("previewer",))
+        kind = {"qualifying": "qualifying session", "sprint": "sprint"}.get(self.mode, "race")
+        await self._run("previewer", f"Write the pre-session read for this {kind}.", deps)
+        return deps.previews[-1].model_copy(update={"tool_calls": deps.tool_log, "rejections": deps.rejections,
+                                                    "cleanups": deps.cleanups, "usage": self._usage(deps)})
 
     async def grade(self, decisions_table: str, stats: str, decision_laps: set[int]) -> tuple[GraderVerdict, list]:
         deps = TeamDeps(agent="grader", chain=("grader",), decision_laps=decision_laps)

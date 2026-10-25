@@ -4,6 +4,7 @@ import { api, type EntryList, type Session, type SimState } from "./api";
 import { AskFab, AskSheet, type AskEntry } from "./AskAI";
 import { applyAccent, FavoriteChips, FavoritesSheet, teamColor, type Fav } from "./Favorites";
 import { AccountSheet, Landing } from "./Landing";
+import { DriverPanel, PreviewCard } from "./Focus";
 import { MomentsLog, RaceControlStrip } from "./Moment";
 import { QualiControl, QualiMoment, QualiRecap, QualiTower, qualiText } from "./Quali";
 import { RaceControl, RaceMoment, RaceRecap, RaceTower, raceText } from "./Race";
@@ -31,6 +32,7 @@ export default function App() {
   const [sheet, setSheet] = useState<null | "ask" | "favorites" | "menu" | "signin" | "create">(null);
   const [editSetup, setEditSetup] = useState(false);
   const [askSeed, setAskSeed] = useState<string | null>(null);
+  const [spotlight, setSpotlight] = useState<string | null>(null);  // a car tapped in the order; null = the followed driver
   const askAbout = (q: string | null) => { setAskSeed(q); setSheet("ask"); };
 
   const setFav = (f: Fav) => {
@@ -44,7 +46,15 @@ export default function App() {
     setSheet(null);
   };
 
-  useEffect(() => { applyAccent(fav.team); }, [fav.team]);
+  // the theme is the followed driver's team while a session is loaded, else the favorite team
+  const followedTeam = entries?.entries.find((e) => e.driver_id === sim?.clock.driver_id)?.team;
+  const themeTeam = (sim?.clock.race_id != null && followedTeam) || fav.team;
+  useEffect(() => { applyAccent(themeTeam); }, [themeTeam]);
+  // the picker always shows who's really being followed (e.g. after a switch)
+  useEffect(() => {
+    if (sim?.clock.driver_id) setDriverId(sim.clock.driver_id);
+    setSpotlight(null);
+  }, [sim?.clock.driver_id]);
   // the favorite driver becomes "my driver" whenever they're in the chosen session
   useEffect(() => {
     if (fav.driver && entries?.entries.some((e) => e.driver_id === fav.driver)) setDriverId(fav.driver);
@@ -114,6 +124,8 @@ export default function App() {
   const myName = myEntry?.name.split(" ").slice(-1)[0] ?? myCode;
   const loadedRace = races.find((r) => r.race_id === clock?.race_id);
   const showSetup = !loaded || editSetup;
+  const notStarted = loaded && !clock!.running && (quali ? clock!.session_time_utc === clock!.session_start_utc
+                                                         : clock!.current_lap === 0);
 
   const setup = (
     <section className="card">
@@ -126,7 +138,11 @@ export default function App() {
              options={(["race", "qualifying", "sprint"] as Session[]).map((s) => ({ value: s, label: SESSION_LABEL[s] }))} />
         <Select label="Weekend" value={raceId} onChange={setRaceId}
                 options={races.map((r) => ({ value: r.race_id, label: <>{r.name}</>, sub: <span className="mono">{r.season} R{r.round}</span> }))} />
-        <Select label="Follow driver" value={driverId} onChange={setDriverId}
+        <Select label="Follow driver" value={driverId} onChange={(id) => {
+                  setDriverId(id);
+                  // same session already playing: switch who we follow right now, keep the lap
+                  if (loaded && raceId === clock?.race_id && session === kind && id !== clock?.driver_id) run(api.follow(id));
+                }}
                 options={(entries?.entries ?? []).map((e) => ({
                   value: e.driver_id,
                   label: <><span style={{ width: 4, height: 16, borderRadius: 2, background: teamColor(e.team), display: "inline-block" }} />
@@ -135,10 +151,16 @@ export default function App() {
                 }))} />
         <div className="spread">
           {entries && <FavoriteChips fav={fav} entries={entries.entries} onOpen={() => setSheet("favorites")} />}
-          <button className="btn lg" disabled={!raceId || !driverId}
-                  onClick={() => run(api.setup(raceId!, driverId, session)).then(() => setEditSetup(false))}>
-            Watch the {SESSION_LABEL[session].toLowerCase()}
-          </button>
+          {loaded && raceId === clock?.race_id && session === kind ? (
+            <button className="btn lg ghost" onClick={() => { if (confirm("Start this session again from the beginning?")) run(api.setup(raceId!, driverId, session)).then(() => setEditSetup(false)); }}>
+              Restart from the start
+            </button>
+          ) : (
+            <button className="btn lg" disabled={!raceId || !driverId}
+                    onClick={() => run(api.setup(raceId!, driverId, session)).then(() => setEditSetup(false))}>
+              Watch the {SESSION_LABEL[session].toLowerCase()}
+            </button>
+          )}
         </div>
       </div>
     </section>
@@ -149,6 +171,8 @@ export default function App() {
       <header className="topbar">
         <div className="wordmark"><span className="slash" />PIT WALL</div>
         {loaded && <span className="pill accent">{SESSION_LABEL[kind]}</span>}
+        {loaded && myCode && <button className="chip team follow-chip" onClick={() => setEditSetup(true)} title="Switch driver">
+          <span className="dot" />Following {myCode}</button>}
         <div className="grow" />
         <div className="row" style={{ gap: "0.4rem" }}>
           <span className="desktop-only"><Switch on={showTokens} onChange={setShowTokens} label="Tokens" /></span>
@@ -186,10 +210,15 @@ export default function App() {
           ? <QualiMoment d={pending} code={myCode} run={run} onAsk={askAbout} />
           : <RaceMoment d={pending} code={myCode} sprint={sprint} run={run} onAsk={askAbout} />)}
 
+        {loaded && sim && notStarted && !pending && <PreviewCard sim={sim} onAsk={askAbout} />}
+
         {loaded && sim && (
           <div className="layout">
-            <div>{quali ? <QualiTower sim={sim} entries={entries?.entries ?? []} /> : sim.race && <RaceTower race={sim.race} />}</div>
+            <div>{quali ? <QualiTower sim={sim} entries={entries?.entries ?? []} onPick={setSpotlight} />
+                        : sim.race && <RaceTower race={sim.race} onPick={setSpotlight} spotlight={spotlight} />}</div>
             <div className="side">
+              <DriverPanel sim={sim} code={spotlight ?? myCode} followed={myCode} team={followedTeam}
+                           onFocus={setSpotlight} onAsk={askAbout} />
               <MomentsLog decisions={sim.decisions} code={myCode} onAsk={askAbout}
                           text={quali ? qualiText(myCode) : raceText(sprint, myCode)} />
             </div>

@@ -39,6 +39,28 @@ through.
   time. A learning summary, not a grade.
 - **Ask AI** is the floating button on every screen, with newcomer questions
   first.
+- **Driver focus** (`GET /api/sim/driver?code=`, `backend/focus.py`): the
+  followed driver's race as it unfolds. It shows position, lap, tires and
+  age, the gaps ahead and behind, the last five lap times (safety-car, VSC
+  and pit laps marked), a plain-language pace trend, and race control's
+  notes about them. Code builds it from the clamped MCP tools, so no model
+  writes any of it. Tap any car in the order to spotlight it instead.
+- **Before the start** (`GET /api/sim/preview`): the grid with qualifying
+  times, the championship going in and each driver's last three Grands Prix
+  (`get_session_preview`, pre-session data only; a sprint gets the sprint
+  grid, since GP qualifying comes later), plus **the AI's pre-session read**,
+  labelled as a prediction. It's the only place predictions are allowed: the
+  previewer agent's text skips the no-prediction check, but its numbers still
+  come from cited facts (`grid_slot`, `quali_result`, `recent_form`, the
+  championship kinds; at least three must be used). Standings or counts typed
+  as words, and claims that someone leads, won or retired, are checked against
+  the data.
+- **Following** (`POST /api/sim/follow`): switch drivers mid-session without
+  restarting. The label, the theme, the highlighted row, the driver panel and
+  the key moments all switch right away.
+- **Team theming**: the followed driver's team color runs through the header,
+  the edges, the followed row and panel, buttons and highlights, on the same
+  dark base.
 
 Same architecture as hw5 (Campus Customs):
 

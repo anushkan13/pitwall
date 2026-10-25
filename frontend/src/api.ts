@@ -138,6 +138,41 @@ export type RaceControl = {
   my_driver_messages: RCMessage[];
 };
 
+export type FocusNote = { when: string; message: string; plain: string };
+export type DriverFocus = {
+  refused?: boolean; reason?: string; out?: boolean; text: string;
+  code: string; team?: string; phase?: "grid" | "racing" | "qualifying";
+  position?: number; lap?: number; total_laps?: number;
+  compound?: string | null; tire_age?: number | null; stops?: number;
+  pitted_end_of_lap?: boolean; out_lap?: boolean;
+  ahead?: { code: string; gap_s: number | null } | null;
+  behind?: { code: string; gap_s: number | null } | null;
+  recent_laps?: { lap: number; time_s?: number | null; time?: string | null; neutralised?: boolean; pit?: boolean;
+                  compound?: string | null; segment?: string | null }[];
+  typical_lap_s?: number | null;
+  pace?: { direction: string | null; change_s?: number | null; text: string };
+  segment?: string | null; best?: string | null; best_compound?: string | null; status?: string;
+  laps_this_segment?: number;
+  cut?: { cars_through: number; inside: boolean; line_code?: string; line_time?: string } | null;
+  notes?: FocusNote[];
+  flags?: { summary: string | null; note: string | null };
+};
+
+export type PreviewDriver = {
+  code: string; name: string; team: string; grid: number | null; pit_lane_start: boolean;
+  qualifying: { position: number; out_in: string | null; best: string | null; best_in: string } | null;
+  championship: { position: number | null; points: number; wins: number } | null;
+  last_races: { round: number; race: string; finish: string }[];
+  is_my_driver: boolean;
+};
+export type Preview = {
+  data: { session: Session; race: string; round: number; circuit: string | null; after_round: number;
+          drivers: PreviewDriver[]; note: string; refused?: boolean; reason?: string };
+  read: { status: "writing" | "ready" | "error"; error: string | null;
+          read: { headline: string; storylines: { title: string; text: string }[]; watch: { code: string; why: string }[];
+                  cited: Fact[]; usage?: Usage | null } | null } | null;
+};
+
 export type RecapMoment = { lap: number; title: string; what_happened: string; why: string };
 
 export type Rate = { matched: number; of: number; pct: number | null };
@@ -254,6 +289,10 @@ export const api = {
   ask: () => req<SimState>("/api/sim/ask", {}),
   call: (call: Call, tire?: Tire) => req<SimState>("/api/sim/call", { call, tire: tire ?? null }),
   continueWatching: () => req<SimState>("/api/sim/continue", {}),
+  follow: (driver_id: string) => req<SimState>("/api/sim/follow", { driver_id }),
+  driver: (code?: string | null) => req<DriverFocus>(`/api/sim/driver${code ? `?code=${encodeURIComponent(code)}` : ""}`),
+  preview: () => req<Preview>("/api/sim/preview"),
+  previewRetry: () => req<Preview>("/api/sim/preview/retry", {}),
   grade: () => req<SimState>("/api/sim/grade", {}),
   askAI: (question: string) => req<AskAnswer>("/api/ask", { question }),
   chat: (message: string) => req<{ message: string }>("/api/engineer/chat", { message }),

@@ -62,6 +62,18 @@ CREATE TABLE IF NOT EXISTS scorecards (
     session_kind    TEXT NOT NULL DEFAULT 'race',
     PRIMARY KEY (race_id, driver_id, session_kind)
 );
+
+-- the AI's pre-session read: a labelled prediction from pre-session data only
+CREATE TABLE IF NOT EXISTS previews (
+    race_id         INTEGER NOT NULL,
+    driver_id       TEXT NOT NULL,
+    session_kind    TEXT NOT NULL,
+    status          TEXT NOT NULL,              -- writing / ready / error
+    read_json       TEXT,
+    error           TEXT,
+    created_at      TEXT NOT NULL,
+    PRIMARY KEY (race_id, driver_id, session_kind)
+);
 """
 
 
@@ -191,3 +203,37 @@ def get_scorecard(race_id: int, driver_id: str, session_kind: str = "race") -> d
     d["stats"] = json.loads(d.pop("stats_json")) if d.get("stats_json") else None
     d["verdict"] = json.loads(d.pop("verdict_json")) if d.get("verdict_json") else None
     return d
+
+
+def save_preview(race_id: int, driver_id: str, session_kind: str, status: str, read: dict | None = None,
+                 error: str | None = None) -> None:
+    with connect() as conn:
+        conn.execute("""INSERT OR REPLACE INTO previews (race_id, driver_id, session_kind, status, read_json, error,
+                                                         created_at) VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                     (race_id, driver_id, session_kind, status, json.dumps(read) if read else None, error, _now()))
+
+
+def get_preview(race_id: int, driver_id: str, session_kind: str) -> dict | None:
+    with connect() as conn:
+        row = conn.execute("SELECT * FROM previews WHERE race_id = ? AND driver_id = ? AND session_kind = ?",
+                           (race_id, driver_id, session_kind)).fetchone()
+    if row is None:
+        return None
+    d = dict(row)
+    d["read"] = json.loads(d.pop("read_json")) if d.get("read_json") else None
+    return d
+
+
+def clear_moments_from(race_id: int, driver_id: str, session_kind: str, lap: int, at_time_utc: str | None) -> None:
+    """Switching to follow a driver mid-session: drop that driver's moments from now on
+    (left over from an earlier watch), keep the ones already behind us."""
+    with connect() as conn:
+        if session_kind == "qualifying":
+            conn.execute("""DELETE FROM decisions WHERE race_id = ? AND driver_id = ? AND session_kind = ?
+                            AND (at_time_utc IS NULL OR at_time_utc >= ?)""", (race_id, driver_id, session_kind,
+                                                                               at_time_utc or ""))
+        else:
+            conn.execute("DELETE FROM decisions WHERE race_id = ? AND driver_id = ? AND session_kind = ? AND lap >= ?",
+                         (race_id, driver_id, session_kind, lap))
+        conn.execute("DELETE FROM scorecards WHERE race_id = ? AND driver_id = ? AND session_kind = ?",
+                     (race_id, driver_id, session_kind))

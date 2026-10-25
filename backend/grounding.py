@@ -45,6 +45,8 @@ FactKind = Literal[
     "drivers_leader", "constructors_leader", "champ_position", "champ_gap", "season_record",
     # race control, any session
     "track_status", "race_control",
+    # the pre-session read only (grounding_preview.py)
+    "grid_slot", "quali_result", "recent_form",
     # qualifying (grounding_quali.py)
     "q_session", "q_time_left", "q_position", "q_best", "q_status", "q_gap_to", "q_cut", "q_evolution",
     "q_recent_best", "q_on_track", "rain_trend", "track_temp_trend",
@@ -263,6 +265,8 @@ async def resolve(ref: FactRef, v: RaceView, _no_car: bool = False) -> Fact:
     k = ref.kind
     if k in RACE_CONTROL_KINDS:
         return await resolve_race_control(ref, v)
+    if k in ("grid_slot", "quali_result", "recent_form"):
+        raise Unresolvable(f"{ref.key}: {k} is for the pre-session read only")
     if k in QUALI_ONLY_KINDS:
         raise Unresolvable(f"{ref.key}: {k} is a qualifying fact; this is the race")
     if (k in TEAM_KINDS or k in NO_CAR_KINDS) and not _no_car:
@@ -321,10 +325,14 @@ async def resolve(ref: FactRef, v: RaceView, _no_car: bool = False) -> Fact:
         if p["direction"] == "steady":
             return fact(f"{code}'s lap times steady (within {abs(p['change_s'])}s over the last 3 laps)",
                         p["change_s"])
+        lap = v.state.get("current_lap") or 0
+        neutral = set((v.rc or {}).get("neutralised_laps") or []) & set(range(max(1, lap - 5), lap + 1))
+        caveat = ("; the earlier laps were under a safety car or VSC, so this isn't a true pace change"
+                  if neutral else "")
         return fact(f"{code}'s lap times {p['direction']} by {abs(p['change_s'])}s "
-                    f"(last 3 laps vs the 3 before)", p["change_s"],
+                    f"(last 3 laps vs the 3 before{caveat})", p["change_s"],
                     [(rf"\b{c}(?:'s|’s)?\s+lap times(?:\s+are)?", f"{p['direction']} by {abs(p['change_s'])}s "
-                                                  f"(last 3 laps vs the 3 before)")])
+                                                  f"(last 3 laps vs the 3 before{caveat})")])
     if k == "last_stop":
         stops = v.stops(code)
         if not stops:

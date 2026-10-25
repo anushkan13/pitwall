@@ -61,7 +61,7 @@ export function QualiControl({ sim, code, run, children }: {
 
 /* ---------- timing tower ---------- */
 
-export function QualiTower({ sim, entries }: { sim: SimState; entries: Entry[] }) {
+export function QualiTower({ sim, entries, onPick }: { sim: SimState; entries: Entry[]; onPick?: (code: string) => void }) {
   const q = sim.quali;
   if (!q || q.refused) return null;
   const team = (code: string) => entries.find((e) => e.code === code)?.team;
@@ -80,7 +80,8 @@ export function QualiTower({ sim, entries }: { sim: SimState; entries: Entry[] }
       {q.order.map((c) => (
         <Fragment key={c.code}>
           {cut != null && c.position === cut + 1 && <div className="cutline">Drop zone</div>}
-          <div className={`trow quali ${c.is_my_driver ? "mine" : ""} ${cut != null && c.position > cut ? "drop" : ""}`}>
+          <div className={`trow quali ${c.is_my_driver ? "mine" : ""} ${cut != null && c.position > cut ? "drop" : ""} ${onPick ? "pick" : ""}`}
+               onClick={() => onPick?.(c.code)}>
             <span className="pos">{c.position}</span>
             <span className="bar" style={{ ["--tc" as string]: teamColor(team(c.code)) }} />
             <span className="code">{c.code}</span>
